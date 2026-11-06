@@ -4,9 +4,9 @@
 |---|---|
 | Projeto | Node FW |
 | Documento | Arquitetura e decisões técnicas |
-| Versão | 0.4.0 |
-| Data | 05/11/2026 |
-| Status | Arquitetura inicial; Fases 1 a 3 implementadas e piloto Nginx da Fase 4 integrado |
+| Versão | 0.5.0 |
+| Data | 06/11/2026 |
+| Status | Arquitetura inicial; Fases 1 a 3 implementadas, piloto Nginx da Fase 4 integrado e painel provisório 4A concluído |
 
 ## 1. Visão geral
 
@@ -110,7 +110,8 @@ node-fw/
 │   ├── IMPLEMENTACAO.md
 │   ├── ARQUITETURA.md
 │   ├── MAXMIND.md
-│   └── NGINX.md
+│   ├── NGINX.md
+│   └── PAINEL-OBSERVACAO.md
 ├── nginx/
 │   ├── 00-node-fw-log.conf
 │   └── node-fw-php-log.conf
@@ -128,11 +129,12 @@ node-fw/
 │   ├── storage/             # Redis, streams, agregações
 │   ├── classification/      # regras, score, decisões
 │   ├── security/            # evento Fail2Ban, reconciliação
-│   ├── api/                 # rotas REST
-│   ├── realtime/            # WebSocket
+│   ├── routes/              # rotas REST e painel provisório
+│   ├── panel/               # HTML/CSS/JS do painel 4A
+│   ├── realtime/            # WebSocket (previsto)
 │   ├── jobs/                # atualização, retenção, limpeza
 │   └── utils/
-├── panel/                   # Vue 3 + Quasar
+├── panel/                   # Vue 3 + Quasar (Fase 7)
 ├── test/
 ├── scripts/                 # operação e diagnóstico
 ├── .env.example
@@ -455,13 +457,20 @@ Exceções devem ser auditadas e não podem desativar silenciosamente todas as r
 
 ### 9.1 API
 
-Rotas previstas:
+Rotas implementadas na fase atual:
 
 ```text
+GET  /panel                  # painel provisório 4A (HTML/CSS/JS)
 GET  /api/health
 GET  /api/ready
+GET  /api/stats
 GET  /api/summary
-GET  /api/events
+GET  /api/events/recent      # paginação cursorizada e filtros limitados
+```
+
+Rotas administrativas previstas para a Fase 7:
+
+```text
 GET  /api/ips/:ip
 GET  /api/suspects
 GET  /api/sites
@@ -478,7 +487,9 @@ PUT  /api/settings
 WS   /ws
 ```
 
-- Autenticação por sessão segura; cookie `HttpOnly`, `Secure`, `SameSite=Strict`.
+- O painel 4A e `/api/events/recent` são somente leitura, com API em loopback e sem autenticação nesta fase. Não devem ser expostos à Internet.
+- A consulta de eventos usa `XREVRANGE` com `COUNT` limitado e cursor de stream; não usa `KEYS` nem carrega o stream inteiro.
+- Autenticação por sessão segura; cookie `HttpOnly`, `Secure`, `SameSite=Strict` (Fase 7).
 - CSRF obrigatório em métodos que alteram estado.
 - Rate limit em login e endpoints administrativos.
 - Validação de entrada por schema.
@@ -486,6 +497,16 @@ WS   /ws
 - Desbloqueio administrativo não executa comando de shell arbitrário; usa helper restrito e IP validado.
 
 ### 9.2 Painel
+
+**Fase 4A (implementado):**
+
+- Painel provisório em HTML/CSS/JS servido pelo próprio Fastify em `/panel`.
+- Somente leitura, loopback, sem autenticação nesta etapa.
+- Polling de 10 segundos; sem WebSocket.
+- Eventos do stream Redis com paginação cursorizada; filtros por site, IP e status.
+- Indicadores de `/api/stats` e `/api/summary`; sem MaxMind/score.
+
+**Fase 7 (previsto):**
 
 - Vue 3 + Quasar, build estático.
 - Servido atrás de proxy com TLS; não exposto diretamente.
@@ -677,7 +698,7 @@ As metas devem ser revalidadas com carga real antes da Fase 9.
 | Jail separado | Reutilizar `nginx-wishlist` | Isolamento e não regressão |
 | Modo monitoramento inicial | Bloqueio automático imediato | Calibração e prevenção de falsos positivos |
 
-## 16. Estado da implementação (Fase 4 — piloto)
+## 16. Estado da implementação (Fase 4 — piloto + painel 4A)
 
 Implementado:
 
@@ -699,6 +720,9 @@ Implementado:
 - `/etc/nginx/nginx.conf` inclui `/home/edson/www/node-fw/nginx/00-node-fw-log.conf` antes de `sites-enabled`; a cópia antiga em `/home/edson/www/nginx/` foi removida para evitar duplicidade.
 - Reload do Nginx de produção aceito em 05/11/2026 e teste real no `casadoppia.site`: 3 eventos gravados no DB 7, sem inválidos.
 - Documentação operacional em `docs/NGINX.md`; backup do vhost em `backups/`.
+- Painel provisório 4A em `/panel`, somente leitura, loopback, com polling de 10s, filtros e paginação cursorizada do stream.
+- Endpoint `/api/events/recent` com limite de 100 por página, varredura máxima de 1.000 entradas e User-Agent truncado em 160 caracteres.
+- UI validada em Chrome headless com eventos reais; 60 testes automatizados aprovados.
 
 Pendente na Fase 4:
 
@@ -711,8 +735,8 @@ Ainda não implementado:
 
 - Enriquecimento MaxMind e país/ASN reais (Fase 5). O pipeline já aceita `country`/`asn` quando presentes.
 - Score, níveis e lista de suspeitos (Fase 6). A reputação atual é descritiva, não classificatória.
-- Painel (Fase 7).
+- Painel administrativo completo (Fase 7); o painel 4A é apenas observação.
 - Evento e jail Fail2Ban (Fase 8).
 - Serviços systemd, alertas formais e endurecimento de produção (Fase 9).
 
-Fluxo atual: Nginx → UDP → parser → fila limitada → aggregator em lote → Redis → `/api/summary` e `/api/stats`. O callback `onEvent` é o ponto de integração do coletor com o pipeline.
+Fluxo atual: Nginx → UDP → parser → fila limitada → aggregator em lote → Redis → `/api/summary`, `/api/stats` e `/panel`. O callback `onEvent` é o ponto de integração do coletor com o pipeline.

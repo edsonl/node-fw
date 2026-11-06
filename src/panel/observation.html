@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Node FW — Observação Fase 4A</title>
+    <link rel="stylesheet" href="/panel/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <h1>Node FW</h1>
+            <p>Observação do soak · somente leitura · loopback</p>
+        </div>
+        <div class="topbar-meta">
+            <span id="app-version">versão —</span>
+            <span id="last-update">última atualização —</span>
+        </div>
+    </header>
+
+    <main>
+        <section class="notice" aria-label="Limitações desta fase">
+            País, ASN, score e nível de risco ainda não estão disponíveis. O enriquecimento MaxMind entra na Fase 5 e a classificação na Fase 6.
+        </section>
+
+        <section id="error-banner" class="banner hidden" role="alert"></section>
+
+        <section class="cards" aria-label="Indicadores recentes">
+            <article class="card">
+                <span class="card-label">Requisições 1m</span>
+                <strong id="metric-req-1m">—</strong>
+                <small>janela atual</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Requisições 5m</span>
+                <strong id="metric-req-5m">—</strong>
+                <small>janela atual</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Requisições 15m</span>
+                <strong id="metric-req-15m">—</strong>
+                <small>janela atual</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Visitantes únicos 1m</span>
+                <strong id="metric-unique-1m">—</strong>
+                <small>estimativa HyperLogLog</small>
+            </article>
+            <article class="card card-wide">
+                <span class="card-label">Status HTTP 1m</span>
+                <div id="status-chips" class="chips">—</div>
+            </article>
+            <article class="card">
+                <span class="card-label">Eventos inválidos</span>
+                <strong id="metric-invalid">—</strong>
+                <small id="invalid-reasons">sem motivos</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Fila</span>
+                <strong id="metric-queue">—</strong>
+                <small id="queue-detail">—</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Redis</span>
+                <strong id="metric-redis">—</strong>
+                <small id="redis-detail">—</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Pipeline</span>
+                <strong id="metric-writes">—</strong>
+                <small id="pipeline-detail">—</small>
+            </article>
+        </section>
+
+        <section class="panel" aria-label="Eventos recentes">
+            <div class="panel-heading">
+                <div>
+                    <h2>Eventos recentes</h2>
+                    <p class="muted">Mais recentes primeiro. Filtros são aplicados no servidor.</p>
+                </div>
+                <span id="event-count" class="muted">0 eventos</span>
+            </div>
+
+            <form id="filters" class="filters">
+                <label>
+                    Site
+                    <input id="filter-site" name="site" type="text" maxlength="253" autocomplete="off" placeholder="ex.: casadoppia.site">
+                </label>
+                <label>
+                    IP
+                    <input id="filter-ip" name="ip" type="text" maxlength="64" autocomplete="off" placeholder="ex.: 203.0.113.10">
+                </label>
+                <label>
+                    Status
+                    <input id="filter-status" name="status" type="number" min="100" max="599" inputmode="numeric" placeholder="ex.: 200">
+                </label>
+                <label>
+                    Por página
+                    <select id="filter-limit" name="limit">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </label>
+                <button id="apply-filters" type="submit">Aplicar</button>
+                <button id="clear-filters" type="button" class="secondary">Limpar</button>
+                <label class="auto-refresh">
+                    <input id="auto-refresh" type="checkbox" checked>
+                    Atualizar a cada 10s
+                </label>
+            </form>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Horário</th>
+                            <th>Site</th>
+                            <th>IP</th>
+                            <th>Método</th>
+                            <th>Caminho</th>
+                            <th>Status</th>
+                            <th>Tempo</th>
+                            <th>Dinâmica</th>
+                            <th>User-Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody id="events-body"></tbody>
+                </table>
+            </div>
+
+            <div id="empty-state" class="empty hidden">Nenhum evento encontrado para os filtros atuais.</div>
+
+            <div class="table-footer">
+                <span id="load-status" class="muted"></span>
+                <div class="table-actions">
+                    <button id="refresh-now" type="button" class="secondary">Atualizar agora</button>
+                    <button id="load-more" type="button" class="secondary hidden">Carregar mais</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel" aria-label="Saúde do coletor e pipeline">
+            <div class="panel-heading">
+                <div>
+                    <h2>Saúde do coletor e pipeline</h2>
+                    <p class="muted">Indicadores de `/api/stats`; campos ausentes aparecem como indisponíveis.</p>
+                </div>
+            </div>
+            <div id="health-grid" class="health-grid">
+                <span class="muted">Carregando...</span>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        Node FW · Fase 4A · sem ações de escrita ou bloqueio
+    </footer>
+
+    <noscript>Este painel precisa de JavaScript para atualizar os dados.</noscript>
+    <script src="/panel/app.js" defer></script>
+</body>
+</html>

@@ -37,6 +37,7 @@ async function main() {
         getPipelineStats: () => aggregator?.getStats() ?? null,
         getRedisStats: () => redisClient?.getStats() ?? null,
         getSummary: (options) => queries.getSummary(options),
+        getRecentEvents: (options) => queries.getRecentEvents(options),
     });
 
     app.log.info(

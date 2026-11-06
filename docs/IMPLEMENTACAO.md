@@ -5,9 +5,9 @@
 | Projeto | Node FW |
 | Diretório | `/home/edson/www/node-fw/` |
 | Documento | Plano de implementação e checklist |
-| Versão | 0.4.0 |
-| Data | 05/11/2026 |
-| Status | Fases 1 a 3 concluídas; Fase 4 com piloto ativo e validado, soak de 24h pendente |
+| Versão | 0.5.0 |
+| Data | 06/11/2026 |
+| Status | Fases 1 a 3 concluídas; piloto da Fase 4 validado; painel provisório 4A concluído; soak de 24h pendente |
 | Responsável | Equipe Node FW |
 
 ## 1. Objetivo
@@ -171,7 +171,31 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 **Critérios de conclusão:** site piloto envia eventos corretos por pelo menos 24 horas, logs tradicionais intactos, contagens compatíveis com amostra e nenhum impacto perceptível no tempo de resposta.
 
+### Fase 4A — Painel provisório de observação
+
+**Status: implementação concluída em 06/11/2026; uso durante o soak e registro final ainda pendentes.** Este incremento permite observar acessos do site piloto durante o soak da Fase 4. É um painel operacional mínimo, somente de leitura, e não antecipa as funções administrativas completas da Fase 7.
+
+- [x] Exibir lista paginada de eventos recentes recebidos pelo coletor, com atualização periódica e indicação clara do horário da última atualização.
+- [x] Exibir campos úteis para investigação: horário, site, IP, método, caminho sem query string, status HTTP, duração, indicação de requisição dinâmica e User-Agent truncado.
+- [x] Permitir filtro por site, IP e status HTTP; validar limites e valores no servidor.
+- [x] Exibir resumo e saúde já disponíveis: volume por janela, respostas por status, eventos inválidos por motivo, fila e estado do Redis.
+- [x] Reutilizar o Redis/stream existente; criar consulta limitada e cursor estável para eventos recentes, sem varrer chaves ou carregar todo o histórico.
+- [x] Manter API e painel restritos a loopback durante esta etapa; não expor porta ou UI à Internet nem criar ações de bloqueio/configuração.
+- [x] Preservar privacidade: nunca mostrar query string, cookies, authorization ou corpo; limitar/truncar User-Agent e demais campos.
+- [x] Registrar como iniciar/parar o painel, campos exibidos e limitações em `docs/PAINEL-OBSERVACAO.md`.
+- [x] Validar paginação, filtros e stream real no Redis DB 7.
+- [x] Validar a renderização da UI em Chrome headless.
+- [ ] Usar o painel durante o soak de 24 horas e registrar contagens, erros e observações antes de aprovar o início da Fase 5.
+
+**Entregue:** UI responsiva em `src/panel/`, rotas `/panel` e `/api/events/recent`, consulta cursorizada em `src/storage/queries.js`, testes de paginação/filtros e guia em `docs/PAINEL-OBSERVACAO.md`. A suíte total tem 60 testes aprovados. A UI e os assets usam CSP restritiva, `Cache-Control: no-store` e bind de API em loopback. A consulta do stream lê no máximo 1.000 entradas por chamada, não usa `KEYS` e trunca User-Agent em 160 caracteres.
+
+**Critérios de conclusão:** eventos recentes e indicadores são visíveis sem acesso direto ao Redis; consulta permanece limitada; UI/API ficam somente locais e somente leitura; observação do piloto e decisão de passagem à Fase 5 ficam registradas.
+
+**Limites explícitos:** sem MaxMind (país/ASN), classificação/score, autenticação administrativa, gestão de regras, WebSocket, bloqueio, nem substituição do painel completo da Fase 7. A conclusão do painel não aprova a Fase 5.
+
 ### Fase 5 — MaxMind
+
+**Pré-requisito:** concluir o painel provisório de observação da Fase 4A e usá-lo durante o soak do piloto. A implementação de MaxMind só começa após a revisão dos dados observados e a conclusão dos critérios da Fase 4.
 
 - [ ] Confirmar no servidor de produção as edições e credenciais disponíveis.
 - [ ] Copiar de forma independente o banco Country existente.
@@ -207,6 +231,8 @@ Inspeção somente leitura realizada em 05/11/2026.
 **Critérios de conclusão:** decisões explicáveis e auditáveis, país nunca é motivo isolado de bloqueio, bots legítimos não são penalizados indevidamente e modo simulação é o padrão.
 
 ### Fase 7 — Painel
+
+O painel desta fase é o produto administrativo completo. Ele não é substituído pelo painel provisório, somente de leitura, previsto na Fase 4A.
 
 - [ ] Criar aplicação Vue 3 + Quasar.
 - [ ] Implementar autenticação administrativa com sessão segura.
@@ -289,6 +315,7 @@ Inspeção somente leitura realizada em 05/11/2026.
 | 2 — Backend e coletor | Concluída | 05/11/2026 |
 | 3 — Redis | Concluída | 05/11/2026 |
 | 4 — Nginx | Em andamento (piloto ativo) | Soak de 24h e expansão pendentes |
+| 4A — Painel provisório | Implementado | 06/11/2026; uso no soak pendente |
 | 5 — MaxMind | Não iniciada | — |
 | 6 — Classificação | Não iniciada | — |
 | 7 — Painel | Não iniciada | — |
@@ -330,12 +357,12 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 ## 10. Próximos passos
 
-1. Manter o Node FW em execução e o piloto por 24 horas.
-2. Acompanhar eventos aceitos, inválidos, fila, Redis e perda de UDP.
-3. Comparar contagens contínuas com o log tradicional do piloto.
-4. Remover o log tradicional temporário se não for desejado; manter o Syslog.
-5. Expandir para os demais sites um por vez, conforme `docs/NGINX.md`.
-6. Avançar para MaxMind e classificação somente após concluir os critérios da Fase 4.
+1. Manter o Node FW em execução e abrir o painel em `http://127.0.0.1:8088/panel`.
+2. Acompanhar o piloto por 24 horas pelo painel e pelos indicadores operacionais.
+3. Comparar contagens contínuas com o log tradicional do piloto e registrar os resultados.
+4. Resolver as pendências de validação da Fase 4 antes de iniciar MaxMind.
+5. Iniciar a Fase 5 após a conclusão documentada da Fase 4; o painel 4A não aprova a Fase 5 por si só.
+6. Expandir para os demais sites um por vez, conforme `docs/NGINX.md`.
 
 ## Apêndice A — Execução local e simulação de eventos
 
@@ -382,7 +409,16 @@ curl -s http://127.0.0.1:8088/api/ready
 curl -s http://127.0.0.1:8088/api/stats
 curl -s http://127.0.0.1:8088/api/summary
 curl -s 'http://127.0.0.1:8088/api/summary?site=www.example.com'
+curl -s 'http://127.0.0.1:8088/api/events/recent?site=www.example.com&limit=25'
 ```
+
+Painel provisório de observação:
+
+```text
+http://127.0.0.1:8088/panel
+```
+
+Guia completo em `docs/PAINEL-OBSERVACAO.md`.
 
 Para ver cada evento aceito/rejeitado nos logs de diagnóstico, use `LOG_EVENTS=true` no `.env`. Em produção, mantenha `false` para evitar volume e exposição de dados.
 

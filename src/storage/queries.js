@@ -6,6 +6,13 @@ import { createKeyBuilder } from './keys.js';
 
 const HOSTNAME_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
 const MAX_HOSTNAME_LENGTH = 253;
+const DEFAULT_EVENT_PAGE_SIZE = 50;
+const MAX_EVENT_PAGE_SIZE = 100;
+const MAX_EVENT_SCAN = 1000;
+const MAX_EVENT_USER_AGENT_LENGTH = 160;
+const MAX_EVENT_PATH_LENGTH = 2048;
+const STREAM_ID_PATTERN = /^\d+-\d+$/;
+const CONTROL_CHARS_PATTERN = /[\u0000-\u001F\u007F]/g;
 
 function normalizeSiteFilter(value) {
     if (value === undefined || value === null || value === '') {
@@ -71,6 +78,135 @@ function assertReplies(replies) {
     if (error) {
         throw error;
     }
+}
+
+function readSingleValue(value, field) {
+    if (Array.isArray(value)) {
+        throw new InvalidQueryError(`${field} must be a single value`);
+    }
+    return value;
+}
+
+function parsePageSize(value) {
+    const single = readSingleValue(value, 'limit');
+    if (single === undefined || single === null || single === '') {
+        return DEFAULT_EVENT_PAGE_SIZE;
+    }
+
+    const text = String(single).trim();
+    if (!/^\d+$/.test(text)) {
+        throw new InvalidQueryError('limit must be an integer');
+    }
+
+    const limit = Number(text);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_EVENT_PAGE_SIZE) {
+        throw new InvalidQueryError(`limit must be between 1 and ${MAX_EVENT_PAGE_SIZE}`);
+    }
+
+    return limit;
+}
+
+function parseCursor(value) {
+    const single = readSingleValue(value, 'cursor');
+    if (single === undefined || single === null || single === '') {
+        return null;
+    }
+    if (typeof single !== 'string' || !STREAM_ID_PATTERN.test(single)) {
+        throw new InvalidQueryError('cursor must be a valid stream ID');
+    }
+
+    return single;
+}
+
+function parseIpFilter(value) {
+    const single = readSingleValue(value, 'ip');
+    if (single === undefined || single === null || single === '') {
+        return null;
+    }
+    if (typeof single !== 'string') {
+        throw new InvalidQueryError('ip must be a string');
+    }
+
+    const ip = single.trim().toLowerCase();
+    if (ip.length > 64 || isIP(ip) === 0) {
+        throw new InvalidQueryError('ip must be a valid IPv4 or IPv6 address');
+    }
+
+    return ip;
+}
+
+function parseStatusFilter(value) {
+    const single = readSingleValue(value, 'status');
+    if (single === undefined || single === null || single === '') {
+        return null;
+    }
+
+    const text = String(single).trim();
+    if (!/^\d+$/.test(text)) {
+        throw new InvalidQueryError('status must be an integer');
+    }
+
+    const status = Number(text);
+    if (!Number.isInteger(status) || status < 100 || status > 599) {
+        throw new InvalidQueryError('status must be between 100 and 599');
+    }
+
+    return status;
+}
+
+function cleanText(value, maxLength) {
+    if (value === undefined || value === null) {
+        return '';
+    }
+
+    return String(value)
+        .replace(CONTROL_CHARS_PATTERN, ' ')
+        .trim()
+        .slice(0, maxLength);
+}
+
+function cleanPath(value) {
+    let path = cleanText(value, 8192);
+    const queryIndex = path.indexOf('?');
+    if (queryIndex !== -1) {
+        path = path.slice(0, queryIndex);
+    }
+
+    return path.slice(0, MAX_EVENT_PATH_LENGTH);
+}
+
+function toOptionalInteger(value, min, max) {
+    const number = Number(value);
+    return Number.isInteger(number) && number >= min && number <= max ? number : null;
+}
+
+function toOptionalNumber(value, min, max) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
+function eventFromStreamEntry(entry) {
+    const message = entry.message instanceof Map
+        ? Object.fromEntries(entry.message)
+        : (entry.message ?? {});
+    const rawUserAgent = message.userAgent;
+
+    return {
+        id: String(entry.id),
+        timestamp: cleanText(message.timestamp, 64),
+        receivedAt: cleanText(message.receivedAt, 64),
+        site: cleanText(message.site, MAX_HOSTNAME_LENGTH),
+        ip: cleanText(message.ip, 64),
+        method: cleanText(message.method, 16),
+        path: cleanPath(message.path),
+        finalUri: cleanPath(message.finalUri),
+        status: toOptionalInteger(message.status, 100, 599),
+        requestTime: toOptionalNumber(message.requestTime, 0, 86400),
+        dynamic: message.dynamic === '1' || message.dynamic === 1,
+        userAgent: cleanText(rawUserAgent, MAX_EVENT_USER_AGENT_LENGTH),
+        userAgentTruncated: typeof rawUserAgent === 'string'
+            && rawUserAgent.length > MAX_EVENT_USER_AGENT_LENGTH,
+    };
 }
 
 export function createRedisQueries({ redis, config }) {
@@ -207,7 +343,74 @@ export function createRedisQueries({ redis, config }) {
         };
     }
 
+    async function getRecentEvents({
+        site: siteFilter,
+        ip: ipFilter,
+        status: statusFilter,
+        cursor,
+        limit,
+    } = {}) {
+        redis.assertReady();
+
+        const site = normalizeSiteFilter(siteFilter);
+        const ip = parseIpFilter(ipFilter);
+        const status = parseStatusFilter(statusFilter);
+        const pageSize = parsePageSize(limit);
+        const cursorId = parseCursor(cursor);
+        const scanCount = Math.min(MAX_EVENT_SCAN, Math.max(pageSize * 10, pageSize + 1));
+
+        const entries = await redis.client.xRevRange(
+            keys.eventStream(),
+            cursorId ?? '+',
+            '-',
+            { COUNT: scanCount }
+        );
+
+        const list = (entries ?? []).filter((entry) => !cursorId || String(entry.id) !== cursorId);
+        const events = [];
+
+        for (const entry of list) {
+            const event = eventFromStreamEntry(entry);
+            if (site && event.site.toLowerCase() !== site) {
+                continue;
+            }
+            if (ip && event.ip.toLowerCase() !== ip) {
+                continue;
+            }
+            if (status !== null && event.status !== status) {
+                continue;
+            }
+            events.push(event);
+        }
+
+        let selected = events;
+        let nextCursor = null;
+        let hasMore = false;
+
+        if (events.length > pageSize) {
+            selected = events.slice(0, pageSize);
+            nextCursor = selected[selected.length - 1].id;
+            hasMore = true;
+        } else if (list.length >= scanCount) {
+            nextCursor = String(list[list.length - 1].id);
+            hasMore = true;
+        }
+
+        return {
+            timestamp: new Date().toISOString(),
+            events: selected,
+            page: {
+                limit: pageSize,
+                count: selected.length,
+                hasMore,
+                nextCursor,
+                scanned: list.length,
+            },
+        };
+    }
+
     return {
         getSummary,
+        getRecentEvents,
     };
 }

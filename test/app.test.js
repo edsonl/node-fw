@@ -28,7 +28,7 @@ test('health, readiness and stats routes reflect collector and Redis state', asy
     assert.equal(health.headers['cache-control'], 'no-store');
     assert.equal(health.json().status, 'ok');
     assert.equal(health.json().service, 'node-fw');
-    assert.equal(health.json().version, '0.4.0');
+    assert.equal(health.json().version, '0.5.0');
     assert.equal(health.json().collector.started, true);
     assert.equal(health.json().redis.ready, true);
 

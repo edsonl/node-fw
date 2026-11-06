@@ -24,7 +24,8 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 │   ├── IMPLEMENTACAO.md
 │   ├── ARQUITETURA.md
 │   ├── MAXMIND.md
-│   └── NGINX.md
+│   ├── NGINX.md
+│   └── PAINEL-OBSERVACAO.md
 ├── nginx/
 │   ├── 00-node-fw-log.conf
 │   └── node-fw-php-log.conf
@@ -37,6 +38,7 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 │   ├── config/
 │   ├── collector/
 │   ├── routes/
+│   ├── panel/
 │   ├── storage/
 │   └── utils/
 ├── scripts/
@@ -89,6 +91,7 @@ Decisões já tomadas:
 - Fase 2 concluída: backend Fastify, configuração de ambiente, coletor Syslog UDP, parser/validação, rotas de saúde e testes.
 - Fase 3 concluída: cliente Redis resiliente, fila limitada, agregação em lote, janelas/TTL, rankings, stream de eventos, reputação e consultas agregadas. Suíte com 51 testes aprovados.
 - Fase 4 (piloto) ativa: `log_format security_json`, map de caminho sem query, snippet PHP e integração do vhost `casadoppia.site`. Validado em Nginx temporário e depois no Nginx real; 3 eventos gravados no DB 7. Soak de 24h pendente.
+- Fase 4A concluída: painel provisório em `/panel`, somente leitura e loopback, com filtros, paginação cursorizada do stream, indicadores de saúde e polling de 10s. Validado em Chrome headless e contra o Redis real; 60 testes automatizados aprovados. Não aprova a Fase 5.
 - Componentes implementados:
   - `src/server.js`: bootstrap, inicialização do coletor/Redis/pipeline e encerramento gracioso.
   - `src/app.js`: Fastify, logger com redaction, IDs de requisição, erros e 404.
@@ -96,15 +99,19 @@ Decisões já tomadas:
   - `src/collector/`: coletor UDP, parser syslog, parser/validação do evento.
   - `src/storage/`: cliente Redis, fila, plano de agregação, aggregator, consultas e chaves.
   - `src/routes/health.js`: `/api/health`, `/api/ready`, `/api/stats`, `/api/summary`.
+  - `src/routes/panel.js`: `/panel` e `/api/events/recent`.
+  - `src/panel/`: HTML/CSS/JS do painel provisório 4A.
   - `src/utils/ip.js`: validação e classificação de escopo de IP.
   - `scripts/send-test-event.js`: simulação de evento.
   - `nginx/00-node-fw-log.conf`: `map` e `log_format` no contexto `http`.
   - `nginx/node-fw-php-log.conf`: snippet Syslog para locations PHP.
   - `docs/NGINX.md`: instruções de vhost, configuração central, validação, rollback e troubleshooting.
-- Ainda não implementados: MaxMind, classificação/score, painel, Fail2Ban e systemd.
+  - `docs/PAINEL-OBSERVACAO.md`: uso, campos, limites e procedimento do soak.
+- Ainda não implementados: MaxMind, classificação/score, painel administrativo completo (Fase 7), Fail2Ban e systemd.
 - Endpoints locais: API `127.0.0.1:8088`, UDP `127.0.0.1:5514`, tag `nodefw`.
-- Redis: DB `7`, prefixo `nodfw:v1:`, janelas 1s/1m/5m/15m, stream `events` com 50.000 entradas. Testes de integração usaram DB 15 e prefixo isolado; o DB 7 não foi alterado.
-- Nginx: `/etc/nginx/nginx.conf` inclui diretamente `/home/edson/www/node-fw/nginx/00-node-fw-log.conf` antes de `sites-enabled`; a cópia antiga em `/home/edson/www/nginx/` foi removida. Piloto `/home/edson/www/nginx/casadoppia.conf` com log tradicional temporário + Syslog; backup em `backups/`. Reload de produção realizado em 05/11/2026 e testado com 3 requisições reais; o processo Node de teste foi encerrado após a validação.
+- Redis: DB `7`, prefixo `nodfw:v1:`, janelas 1s/1m/5m/15m, stream `events` com 50.000 entradas. O DB 7 contém eventos de teste do piloto; testes isolados usaram DB 15.
+- Nginx: `/etc/nginx/nginx.conf` inclui diretamente `/home/edson/www/node-fw/nginx/00-node-fw-log.conf` antes de `sites-enabled`; a cópia antiga em `/home/edson/www/nginx/` foi removida. Piloto `/home/edson/www/nginx/casadoppia.conf` com log tradicional temporário + Syslog; backup em `backups/`. Reload de produção realizado em 05/11/2026 e testado com requisições reais.
+- Painel: `http://127.0.0.1:8088/panel`, somente leitura e loopback. Para o soak de 24h, executar em tmux/screen; systemd fica para a Fase 9.
 - Inspeção do ambiente:
   - Node.js `v24.12.0`, npm `10.5.2`.
   - Nginx `1.18.0`, com include de `/home/edson/www/nginx/*.conf`.
@@ -123,13 +130,14 @@ Decisões já tomadas:
 
 Concluir a **Fase 4 — soak e expansão**:
 
-1. Manter o Node FW em execução e o piloto `casadoppia.site` por 24 horas.
-2. Acompanhar `/api/stats`, `/api/summary`, stream `events`, invalid, fila e Redis.
+1. Manter o Node FW em execução em tmux/screen e o piloto `casadoppia.site` por 24 horas.
+2. Acompanhar o painel em `http://127.0.0.1:8088/panel`, `/api/stats`, `/api/summary`, stream `events`, invalid, fila e Redis.
 3. Comparar contagens do log tradicional com os eventos aceitos.
 4. Remover o log tradicional temporário do piloto se não for desejado; manter o Syslog.
-5. Expandir para outros sites um por vez, conforme `docs/NGINX.md`.
+5. Registrar os resultados do soak e só então avaliar a Fase 5.
+6. Expandir para outros sites um por vez, conforme `docs/NGINX.md`.
 
-Não avançar para MaxMind, classificação ou Fail2Ban antes de concluir o soak e a validação do piloto. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
+Não avançar para MaxMind, classificação ou Fail2Ban antes de concluir o soak e a validação do piloto. O painel 4A não aprova a Fase 5 por si só. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
 
 ## 8. Documentos de referência
 
@@ -137,3 +145,4 @@ Não avançar para MaxMind, classificação ou Fail2Ban antes de concluir o soak
 - `docs/ARQUITETURA.md`: componentes, fluxo, Redis, Nginx, classificação, Fail2Ban e segurança.
 - `docs/MAXMIND.md`: inspeção, cópia segura, atualização independente e pendências.
 - `docs/NGINX.md`: configuração central, vhosts, validação, rollback e troubleshooting.
+- `docs/PAINEL-OBSERVACAO.md`: painel 4A, filtros, paginação, limites e procedimento do soak.

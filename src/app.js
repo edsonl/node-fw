@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { LogController } from 'fastify';
 
 import { healthRoutes } from './routes/health.js';
+import { panelRoutes } from './routes/panel.js';
 
 const REDACT_PATHS = [
     'req.headers.authorization',
@@ -17,6 +18,7 @@ export function buildApp({
     getPipelineStats = () => null,
     getRedisStats = () => null,
     getSummary = null,
+    getRecentEvents = null,
     logger,
 } = {}) {
     if (!config) {
@@ -46,6 +48,10 @@ export function buildApp({
         getRedisStats,
         getSummary,
         serviceName: config.serviceName,
+    });
+
+    app.register(panelRoutes, {
+        getRecentEvents,
     });
 
     app.setNotFoundHandler((request, reply) => {
