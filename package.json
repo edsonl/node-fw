@@ -1,0 +1,21 @@
+{
+  "name": "node-fw",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Security monitoring and classification for Nginx access logs",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "send:test-event": "node scripts/send-test-event.js"
+  },
+  "dependencies": {
+    "fastify": "^5.12.8",
+    "redis": "^6.3.1"
+  }
+}
