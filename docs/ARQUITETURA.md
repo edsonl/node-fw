@@ -80,7 +80,7 @@ NGINX
 | Origem → destino | Protocolo/meio | Endereço padrão | Proteção |
 |---|---|---|---|
 | Nginx → coletor | Syslog UDP | `127.0.0.1:5514` | Bind em loopback, validação de schema e tamanho |
-| Coletor/API → Redis | RESP/TCP | `127.0.0.1:6379`, DB 7 | Bind local, ACL/requirepass, firewall |
+| Coletor/API → Redis | RESP2/TCP | `127.0.0.1:6379`, DB 7 | Compatível com o Redis 5.0.7 observado no servidor; bind local, ACL/requirepass, firewall |
 | Node → MaxMind | Leitura de arquivo local | `data/geolite2/` ou `/var/lib/node-fw/geolite2/` | Permissões restritas, sem rede no hot path |
 | Job → MaxMind | HTTPS | `download.maxmind.com:443` | TLS, credenciais em `.env`, URL nunca logada |
 | Node → Fail2Ban | Arquivo append-only | `/var/log/node-fw/security-events.log` | Diretório restrito, linha validada, filtro ancorado |

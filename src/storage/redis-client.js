@@ -32,6 +32,8 @@ export function createRedisClient({ config, logger = null }) {
     const client = createClient({
         url,
         database,
+        // Redis 5 does not implement HELLO; RESP2 avoids that handshake.
+        RESP: 2,
         disableOfflineQueue: true,
         socket: {
             connectTimeout: connectTimeoutMs,

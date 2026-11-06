@@ -139,6 +139,8 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 **Critérios de conclusão:** agregações corretas em testes de janela, TTL funcionando, memória limitada, nenhuma perda de estabilidade do coletor quando o Redis cai.
 
+**Compatibilidade no servidor do piloto (06/11/2026):** o Redis em uso reportou versão 5.0.7 e não reconhece `HELLO`. O cliente Node foi configurado para RESP2, evitando esse handshake e mantendo compatibilidade com o piloto. Planejar atualização do Redis em janela própria, após avaliar os outros serviços que compartilham a instância.
+
 ### Fase 4 — Integração Nginx
 
 **Status: piloto ativo e validado no Nginx de produção; soak de 24h pendente.**
