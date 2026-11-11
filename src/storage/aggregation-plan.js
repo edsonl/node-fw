@@ -102,6 +102,9 @@ function streamFields(event) {
         'country', event.country ?? '',
         'asn', event.asn === undefined || event.asn === null ? '' : String(event.asn),
         'asnOrg', event.asnOrg ?? '',
+        'geoProfile', event.geoProfile ?? '',
+        'geoFactor', String(Number.isFinite(event.geoFactor) ? event.geoFactor : 1),
+        'geoFallback', event.geoFallback ? '1' : '0',
         'score', String(Number.isFinite(event.score) ? event.score : 0),
         'level', event.level ?? 'normal',
         'reasons', JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []),
@@ -188,6 +191,9 @@ export function buildAggregationPlan(events, options) {
                 lastStatus: event.status,
                 lastMethod: event.method,
                 lastCountry: country,
+                lastGeoProfile: event.geoProfile ?? null,
+                lastGeoFactor: Number.isFinite(event.geoFactor) ? event.geoFactor : 1,
+                lastGeoFallback: Boolean(event.geoFallback),
                 score: Number.isFinite(event.score) ? event.score : 0,
                 level: event.level ?? 'normal',
                 reasons: JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []),
@@ -208,6 +214,9 @@ export function buildAggregationPlan(events, options) {
                 if (country) {
                     reputation.lastCountry = country;
                 }
+                reputation.lastGeoProfile = event.geoProfile ?? null;
+                reputation.lastGeoFactor = Number.isFinite(event.geoFactor) ? event.geoFactor : 1;
+                reputation.lastGeoFallback = Boolean(event.geoFallback);
                 reputation.score = Number.isFinite(event.score) ? event.score : 0;
                 reputation.level = event.level ?? 'normal';
                 reputation.reasons = JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []);

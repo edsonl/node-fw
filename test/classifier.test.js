@@ -80,6 +80,199 @@ test('normal traffic remains normal and country alone cannot block', () => {
     assert.ok(foreign.reasons.includes('foreign_country:US'));
 });
 
+test('maps countries to geographic profiles with strict precedence and unknown fallback', () => {
+    const classifier = createClassifier({
+        rules: makeRules({ weights: { foreignCountry: 0 } }),
+    });
+    const cases = [
+        ['BR', 'relaxed', 1.5, false],
+        ['US', 'relaxed', 1.5, false],
+        ['FR', 'standard', 1, false],
+        ['JP', 'strict', 0.5, false],
+        ['RU', 'strict', 0.5, false],
+        ['SG', 'strict', 0.5, false],
+        ['SA', 'strict', 0.5, false],
+        ['AU', 'standard', 1, true],
+        ['ZZ', 'standard', 1, true],
+        [null, 'standard', 1, true],
+        ['usa', 'standard', 1, true],
+    ];
+
+    cases.forEach(([country, profile, factor, fallback], index) => {
+        const value = classifier.classify(event({
+            ip: `8.8.8.${index + 1}`,
+            country,
+        }));
+
+        assert.equal(value.geoProfile, profile, `country ${country}`);
+        assert.equal(value.geoFactor, factor, `country ${country}`);
+        assert.equal(value.geoFallback, fallback, `country ${country}`);
+        assert.equal(value.score, 0, `country ${country}`);
+        assert.deepEqual(value.reasons, [], `country ${country}`);
+    });
+
+    const stats = classifier.getStats();
+    assert.equal(stats.geoProfileCounts.relaxed, 2);
+    assert.equal(stats.geoProfileCounts.standard, 5);
+    assert.equal(stats.geoProfileCounts.strict, 4);
+});
+
+test('resolves overlapping country groups using strict > standard > relaxed', () => {
+    const classifier = createClassifier({
+        rules: makeRules({
+            weights: { foreignCountry: 0 },
+            geoProfiles: {
+                countries: {
+                    relaxed: ['BR', 'US', 'FR'],
+                    standard: ['US', 'FR'],
+                    strict: ['FR'],
+                },
+            },
+        }),
+    });
+
+    assert.equal(classifier.classify(event({ ip: '8.8.8.1', country: 'BR' })).geoProfile, 'relaxed');
+    assert.equal(classifier.classify(event({ ip: '8.8.8.2', country: 'US' })).geoProfile, 'standard');
+    assert.equal(classifier.classify(event({ ip: '8.8.8.3', country: 'FR' })).geoProfile, 'strict');
+});
+
+test('applies the geographic factor to every general rate window', () => {
+    const cases = [
+        {
+            limits: { perMinute: 2, per5m: 1000, per15m: 1000, burst10s: 1000 },
+            expected: 'rate_1m:2/1',
+        },
+        {
+            limits: { perMinute: 1000, per5m: 2, per15m: 1000, burst10s: 1000 },
+            expected: 'rate_5m:2/1',
+        },
+        {
+            limits: { perMinute: 1000, per5m: 1000, per15m: 2, burst10s: 1000 },
+            expected: 'rate_15m:2/1',
+        },
+        {
+            limits: { perMinute: 1000, per5m: 1000, per15m: 1000, burst10s: 2 },
+            expected: 'burst_10s:2/1',
+        },
+    ];
+
+    for (const { limits, expected } of cases) {
+        const classifier = createClassifier({
+            rules: makeRules({
+                weights: { foreignCountry: 0 },
+                rateLimits: limits,
+            }),
+        });
+
+        let value;
+        for (let index = 0; index < 2; index += 1) {
+            value = classifier.classify(event({
+                country: 'CN',
+                receivedAt: new Date(START + index * 1000).toISOString(),
+            }));
+        }
+
+        assert.ok(value.reasons.includes(expected), expected);
+        assert.equal(value.mode, 1);
+        assert.equal(value.blockEligible, false);
+    }
+});
+
+test('multiplies site overrides by the geographic factor', () => {
+    const classifier = createClassifier({
+        rules: makeRules({
+            weights: { foreignCountry: 0 },
+            rateLimits: { perMinute: 2, per5m: 1000, per15m: 1000, burst10s: 1000 },
+            sites: {
+                'strict.example': {
+                    rateLimits: { perMinute: 10 },
+                },
+            },
+        }),
+    });
+
+    let value;
+    for (let index = 0; index < 5; index += 1) {
+        value = classifier.classify(event({
+            site: 'strict.example',
+            country: 'CN',
+            receivedAt: new Date(START + index * 1000).toISOString(),
+        }));
+    }
+    assert.equal(value.reasons.some((reason) => reason.startsWith('rate_1m:')), false);
+
+    value = classifier.classify(event({
+        site: 'strict.example',
+        country: 'CN',
+        receivedAt: new Date(START + 5000).toISOString(),
+    }));
+    assert.ok(value.reasons.includes('rate_1m:6/5'));
+});
+
+test('relaxed and strict profiles do not alter critical path rate limits', () => {
+    for (const country of ['BR', 'CN']) {
+        const classifier = createClassifier({
+            rules: makeRules({
+                weights: { foreignCountry: 0, criticalPath: 0, criticalPathRate: 10 },
+                rateLimits: {
+                    perMinute: 1000,
+                    per5m: 1000,
+                    per15m: 1000,
+                    burst10s: 1000,
+                    criticalPathPerMinute: 2,
+                },
+            }),
+        });
+
+        let value;
+        for (let index = 0; index < 2; index += 1) {
+            value = classifier.classify(event({
+                country,
+                path: '/.env',
+                receivedAt: new Date(START + index * 1000).toISOString(),
+            }));
+        }
+        assert.equal(
+            value.reasons.some((reason) => reason.startsWith('critical_path_rate:')),
+            false,
+            `country ${country} below hard critical limit`
+        );
+
+        value = classifier.classify(event({
+            country,
+            path: '/.env',
+            receivedAt: new Date(START + 2000).toISOString(),
+        }));
+        assert.ok(
+            value.reasons.includes('critical_path_rate:3/2'),
+            `country ${country} above hard critical limit`
+        );
+    }
+});
+
+test('geographic profile alone does not create score or block eligibility', () => {
+    const classifier = createClassifier({
+        rules: makeRules({
+            mode: 3,
+            thresholds: { observation: 1, suspect: 2, critical: 3, block: 3 },
+            weights: { foreignCountry: 0 },
+        }),
+    });
+
+    const strict = classifier.classify(event({ country: 'CN' }));
+    assert.equal(strict.geoProfile, 'strict');
+    assert.equal(strict.score, 0);
+    assert.deepEqual(strict.reasons, []);
+    assert.equal(strict.blockEligible, false);
+
+    const unknown = classifier.classify(event({ ip: '8.8.8.9', country: null }));
+    assert.equal(unknown.geoProfile, 'standard');
+    assert.equal(unknown.geoFallback, true);
+    assert.equal(unknown.score, 0);
+    assert.deepEqual(unknown.reasons, []);
+    assert.equal(unknown.blockEligible, false);
+});
+
 test('combines country, critical path and empty User-Agent into an explainable score', () => {
     const classifier = createClassifier({ rules: makeRules() });
     const value = classifier.classify(event({
@@ -100,6 +293,7 @@ test('detects high request rate and 404 scanning', () => {
         thresholds: { observation: 15, suspect: 30, critical: 70, block: 85 },
         weights: { rate10x: 60, notFoundRatio: 30 },
         rateLimits: { perMinute: 2, per5m: 1000, per15m: 1000, burst10s: 1000 },
+        geoProfiles: { enabled: false },
     });
     const classifier = createClassifier({ rules });
 

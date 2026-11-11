@@ -1,6 +1,7 @@
 import { BlockList, isIP } from 'node:net';
 
 import { createIpTracker } from './ip-tracker.js';
+import { GEO_PROFILE_PRECEDENCE } from './rules.js';
 
 function buildCidrList(cidrs, logger) {
     const list = new BlockList();
@@ -54,6 +55,23 @@ function pathMatches(path, prefixes) {
     ));
 }
 
+function prepareGeoCountryMap(geoProfiles) {
+    const map = new Map();
+    if (!geoProfiles.enabled) {
+        return map;
+    }
+
+    for (const profile of GEO_PROFILE_PRECEDENCE) {
+        for (const country of geoProfiles.countries[profile]) {
+            if (!map.has(country)) {
+                map.set(country, profile);
+            }
+        }
+    }
+
+    return map;
+}
+
 function prepareRules(rules, logger) {
     return {
         ...rules,
@@ -63,7 +81,38 @@ function prepareRules(rules, logger) {
         preparedPaths: [...rules.exceptions.paths],
         preparedCriticalPaths: [...rules.criticalPaths],
         preparedAuthPaths: [...rules.authPaths],
+        preparedGeoCountries: prepareGeoCountryMap(rules.geoProfiles),
     };
+}
+
+function normalizeCountryCode(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const code = value.trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(code) ? code : null;
+}
+
+function resolveGeoProfile(rules, country) {
+    if (!rules.geoProfiles.enabled) {
+        return { profile: null, factor: 1, fallback: false };
+    }
+
+    const code = normalizeCountryCode(country);
+    const matched = code ? rules.preparedGeoCountries.get(code) : null;
+    const profile = matched ?? rules.geoProfiles.unknownProfile;
+
+    return {
+        profile,
+        factor: rules.geoProfiles.profiles[profile].rateFactor,
+        fallback: !matched,
+    };
+}
+
+function formatLimit(value) {
+    return Number.isInteger(value)
+        ? String(value)
+        : String(Math.round(value * 100) / 100);
 }
 
 function levelForScore(score, thresholds) {
@@ -119,6 +168,7 @@ export function createClassifier({
         pathExceptions: 0,
         errors: 0,
         modeCounts: { 1: 0, 2: 0, 3: 0 },
+        geoProfileCounts: { relaxed: 0, standard: 0, strict: 0 },
         lastError: null,
     };
 
@@ -150,10 +200,20 @@ export function createClassifier({
         event.mode = Number.isInteger(mode) && [1, 2, 3].includes(mode) ? mode : globalRules.mode;
         event.blockEligible = false;
         event.excluded = false;
+        event.geoProfile = null;
+        event.geoFactor = 1;
+        event.geoFallback = false;
 
         try {
             const activeRules = rulesForSite(event.site);
             event.mode = activeRules.mode;
+            const geo = resolveGeoProfile(activeRules, event.country);
+            event.geoProfile = geo.profile;
+            event.geoFactor = geo.factor;
+            event.geoFallback = geo.fallback;
+            if (geo.profile) {
+                stats.geoProfileCounts[geo.profile] += 1;
+            }
             const nowMs = Date.parse(event.receivedAt) || now();
             const claim = botVerifier?.claimsBot(event.userAgent) ?? null;
             const botStatus = claim && botVerifier ? botVerifier.getStatus(event.ip) : null;
@@ -225,31 +285,33 @@ export function createClassifier({
             const botRateMultiplier = botStatus === 'verified'
                 ? activeRules.botVerification.rateMultiplier
                 : 1;
-            const limit1m = activeRules.rateLimits.perMinute * botRateMultiplier;
+            const geoRateMultiplier = geo.factor;
+            const limit1m = activeRules.rateLimits.perMinute * geoRateMultiplier * botRateMultiplier;
             if (ipStats.site1m > limit1m * 10) {
-                add(activeRules.weights.rate10x, `rate_1m:${ipStats.site1m}/${limit1m}`);
+                add(activeRules.weights.rate10x, `rate_1m:${ipStats.site1m}/${formatLimit(limit1m)}`);
             } else if (ipStats.site1m > limit1m * 3) {
-                add(activeRules.weights.rate3x, `rate_1m:${ipStats.site1m}/${limit1m}`);
+                add(activeRules.weights.rate3x, `rate_1m:${ipStats.site1m}/${formatLimit(limit1m)}`);
             } else if (ipStats.site1m > limit1m) {
-                add(activeRules.weights.rateAboveLimit, `rate_1m:${ipStats.site1m}/${limit1m}`);
+                add(activeRules.weights.rateAboveLimit, `rate_1m:${ipStats.site1m}/${formatLimit(limit1m)}`);
             }
 
-            const limit5m = activeRules.rateLimits.per5m * botRateMultiplier;
+            const limit5m = activeRules.rateLimits.per5m * geoRateMultiplier * botRateMultiplier;
             if (ipStats.site5m > limit5m) {
-                add(activeRules.weights.rate5m, `rate_5m:${ipStats.site5m}/${limit5m}`);
+                add(activeRules.weights.rate5m, `rate_5m:${ipStats.site5m}/${formatLimit(limit5m)}`);
             }
-            const limit15m = activeRules.rateLimits.per15m * botRateMultiplier;
+            const limit15m = activeRules.rateLimits.per15m * geoRateMultiplier * botRateMultiplier;
             if (ipStats.site15m > limit15m) {
-                add(activeRules.weights.rate15m, `rate_15m:${ipStats.site15m}/${limit15m}`);
+                add(activeRules.weights.rate15m, `rate_15m:${ipStats.site15m}/${formatLimit(limit15m)}`);
             }
-            if (ipStats.burst > activeRules.rateLimits.burst10s * botRateMultiplier) {
-                add(activeRules.weights.burst, `burst_10s:${ipStats.burst}`);
+            const burstLimit = activeRules.rateLimits.burst10s * geoRateMultiplier * botRateMultiplier;
+            if (ipStats.burst > burstLimit) {
+                add(activeRules.weights.burst, `burst_10s:${ipStats.burst}/${formatLimit(burstLimit)}`);
             }
             const criticalPathLimit = activeRules.rateLimits.criticalPathPerMinute * botRateMultiplier;
             if (ipStats.critical1m > criticalPathLimit) {
                 add(
                     activeRules.weights.criticalPathRate,
-                    `critical_path_rate:${ipStats.critical1m}/${criticalPathLimit}`
+                    `critical_path_rate:${ipStats.critical1m}/${formatLimit(criticalPathLimit)}`
                 );
             }
 
@@ -331,6 +393,7 @@ export function createClassifier({
             ...stats,
             levelCounts: { ...stats.levelCounts },
             modeCounts: { ...stats.modeCounts },
+            geoProfileCounts: { ...stats.geoProfileCounts },
             trackedIps: tracker.size(),
             rulesSource,
             rulesError,

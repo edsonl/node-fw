@@ -213,6 +213,7 @@ function eventFromStreamEntry(entry) {
     const rawUserAgent = message.userAgent;
     const rawCountry = cleanText(message.country, 2);
     const level = cleanText(message.level, 16).toLowerCase();
+    const geoProfile = cleanText(message.geoProfile, 16).toLowerCase();
 
     return {
         id: String(entry.id),
@@ -232,6 +233,9 @@ function eventFromStreamEntry(entry) {
         country: /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : null,
         asn: toOptionalInteger(message.asn, 1, 4_294_967_295),
         asnOrg: cleanText(message.asnOrg, 128) || null,
+        geoProfile: ['relaxed', 'standard', 'strict'].includes(geoProfile) ? geoProfile : null,
+        geoFactor: toOptionalNumber(message.geoFactor, 0.1, 3),
+        geoFallback: message.geoFallback === '1',
         score: toOptionalInteger(message.score, 0, 100),
         level: LEVELS.has(level) ? level : null,
         reasons: parseReasons(message.reasons),

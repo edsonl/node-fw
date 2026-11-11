@@ -110,6 +110,24 @@ test('enriches public IPv4 and IPv6 events', async () => {
     assert.equal(stats.degraded, false);
 });
 
+test('normalizes country ISO codes to uppercase before classification', async () => {
+    const { openDatabase } = createOpenDatabase({
+        countryData: {
+            '8.8.8.8': { country: { iso_code: 'br' } },
+        },
+        asnData: {},
+    });
+    const enricher = createMaxMindEnricher({
+        config: maxmindConfig(),
+        openDatabase,
+    });
+
+    await enricher.start();
+
+    const value = enricher.enrich(event('8.8.8.8'));
+    assert.equal(value.country, 'BR');
+});
+
 test('returns nulls for private, reserved and invalid IPs without lookups', async () => {
     const lookups = [];
     const enricher = createMaxMindEnricher({

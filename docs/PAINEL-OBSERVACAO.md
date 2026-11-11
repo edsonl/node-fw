@@ -4,8 +4,8 @@
 |---|---|
 | Documento | Guia do painel provisório de observação |
 | Versão | 0.7.0 |
-| Data | 10/11/2026 |
-| Status | Implementado e validado; MaxMind e classificação em desenvolvimento; soak de 24h da Fase 4 ainda pendente |
+| Data | 11/11/2026 |
+| Status | Implementado e validado; MaxMind e classificação (com perfis geográficos) em desenvolvimento; soak de 24h da Fase 4 ainda pendente |
 | Natureza | Somente leitura, loopback, sem autenticação nesta etapa |
 
 ## 1. Objetivo
@@ -68,7 +68,7 @@ Para encerrar o processo iniciado no tmux, use `Ctrl+C` dentro da sessão. Ainda
 - Prontidão do Redis e reconexões.
 - Lotes, eventos gravados, falhas de escrita e descartes do pipeline.
 - MaxMind: habilitado, país/ASN prontos, cache, lookups, hits e erros.
-- Classificação: modo, decisões, níveis, IPs rastreados, exceções e erros.
+- Classificação: modo, decisões, níveis, perfis geográficos aplicados, IPs rastreados, exceções e erros.
 - Saúde do coletor: recebidos, aceitos, inválidos e erros de callback.
 
 Se um indicador não existir na resposta, a tela mostra `—` ou `indisponível`; nenhum valor é inventado.
@@ -83,6 +83,7 @@ Colunas exibidas:
 | Site | `site` | Domínio do evento |
 | IP | `ip` | IP do cliente |
 | Origem | `country`, `asn` | País e ASN quando o MaxMind está carregado; `—` em modo degradado |
+| Perfil geográfico | `geoProfile`, `geoFactor`, `geoFallback` | Exibido apenas no título da célula Origem; `geoFallback` indica país ausente/inválido. Sem edição pela UI |
 | Método | `method` | GET, POST etc. |
 | Caminho | `path` | Sem query string |
 | Status | `status` | Com cor por faixa 2xx/3xx/4xx/5xx |
@@ -127,6 +128,8 @@ A URI final (`finalUri`) não é exibida como coluna; quando difere do caminho, 
 
 - MaxMind pode estar ausente/corrompido: país e ASN aparecem como `—`; nenhum valor é inventado.
 - Score, nível e motivos são calculados localmente em modo monitoramento; não há calibração real nem bloqueio nesta fase.
+- O perfil geográfico (`relaxed`, `standard` ou `strict`) e o fator efetivo aparecem apenas como diagnóstico no título da origem; não há edição de perfis pela UI.
+- País ausente/inválido usa o perfil `standard` e é marcado como `geoFallback`; a ausência de país não adiciona score.
 - O tracker de janelas é em memória e reinicia com o processo; a reputação/score persistidos no Redis permanecem, mas as janelas são reconstruídas.
 - O painel administrativo de suspeitos, regras e exceções continua na Fase 7; a tela apenas exibe os campos do evento.
 - Sem autenticação, multiusuário ou auditoria administrativa.
@@ -166,7 +169,7 @@ wc -l logs/casadoppia-access.log
 
 ## 7. Relação com as Fases 5 e 6
 
-MaxMind e classificação estão implementados em desenvolvimento, mas **não implantados**. Bancos/credenciais reais, calibração dos scores e a decisão de produção continuam pendentes da revisão do soak da Fase 4. O painel mostra país/ASN quando os bancos estão carregados, score/nível em modo monitoramento e `—` quando o dado não existe. O estado atual e os comandos de coleta estão em `docs/SOAK-24H-PENDENTE.md`.
+MaxMind e classificação estão implementados em desenvolvimento, mas **não implantados**. Bancos/credenciais reais, calibração dos scores/fatores geográficos e a decisão de produção continuam pendentes da revisão do soak da Fase 4. O painel mostra país/ASN quando os bancos estão carregados, score/nível em modo monitoramento, perfil/fator geográfico no diagnóstico e `—` quando o dado não existe. O estado atual e os comandos de coleta estão em `docs/SOAK-24H-PENDENTE.md`.
 
 - eventos aceitos sem inválidos relevantes;
 - contagens compatíveis com o log tradicional;
@@ -179,7 +182,7 @@ MaxMind e classificação estão implementados em desenvolvimento, mas **não im
 
 ## 8. Validação realizada
 
-- 99 testes automatizados aprovados.
+- 108 testes automatizados aprovados.
 - Teste real de paginação no stream Redis DB 7.
 - Filtros por site, IP e status validados.
 - Consulta de cursor sem duplicidade.
@@ -188,6 +191,7 @@ MaxMind e classificação estão implementados em desenvolvimento, mas **não im
 - Origem (país/ASN) exibida quando há dados; `—` em modo degradado.
 - MaxMind degradado validado sem invenção de país/ASN e com aviso no painel.
 - Score/nível validados no painel com evento real (`critical_path` + UA vazio).
+- Perfil/fator geográfico validados no diagnóstico de origem; país desconhecido não adiciona score.
 - Interface e assets com headers restritivos; bind mantido em loopback.
 
 Atribuição: o painel inclui o texto “Inclui dados GeoLite2 criados pela MaxMind, disponíveis em https://www.maxmind.com.”
@@ -200,8 +204,8 @@ Atribuição: o painel inclui o texto “Inclui dados GeoLite2 criados pela MaxM
 - `src/routes/panel.js`: serve a UI e o endpoint `/api/events/recent`.
 - `src/storage/queries.js`: consulta cursorizada do stream, incluindo país/ASN e score.
 - `src/enrichment/maxmind.js`: readers, cache e modo degradado.
-- `src/classification/`: regras, tracker, verificador de bots e motor de score.
-- `config/classification.example.json`: exemplo de regras globais e por site.
+- `src/classification/`: regras, perfis geográficos, tracker, verificador de bots e motor de score.
+- `config/classification.example.json`: exemplo de regras globais, perfis geográficos e overrides por site.
 - `test/event-query.test.js`: paginação, filtros e validação.
 - `test/panel.test.js`: assets, headers e respostas de erro.
 - `test/maxmind-enricher.test.js` e `test/maxmind-updater.test.js`: mocks/fixtures de MaxMind.

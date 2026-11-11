@@ -32,6 +32,7 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 ├── backups/                 # backups locais de vhosts (fora do Git)
 ├── prompts/
 │   ├── CONTEXTO.md
+│   ├── CLASSIFICACAO-GEOGRAFICA-FASE6.md
 │   └── VALIDACAO-LOGS-ETAPA-FINAL.md
 ├── config/
 │   └── classification.example.json
@@ -93,7 +94,7 @@ Decisões já tomadas:
 - Não expor Redis ou painel diretamente à internet.
 - Não confiar em `X-Forwarded-For` de origem não confiável.
 
-## 6. Estado atual (10/11/2026)
+## 6. Estado atual (11/11/2026)
 
 - Fase 1 concluída: documentação, inspeção MaxMind e `.gitignore` criados.
 - Fase 2 concluída: backend Fastify, configuração de ambiente, coletor Syslog UDP, parser/validação, rotas de saúde e testes.
@@ -101,7 +102,7 @@ Decisões já tomadas:
 - Fase 4 (piloto) ativa: `log_format security_json`, map de caminho sem query, snippet PHP e integração do vhost `casadoppia.site`. Validado em Nginx temporário e depois no Nginx real; 3 eventos gravados no DB 7. Soak de 24h pendente.
 - Fase 4A concluída: painel provisório em `/panel`, somente leitura e loopback, com filtros, paginação cursorizada do stream, indicadores de saúde e polling de 10s. Validado em Chrome headless e contra o Redis real. Não aprova a Fase 5.
 - Fase 5 implementada em desenvolvimento: MaxMind Country/ASN com readers locais, cache/TTL, modo degradado, updater independente com lock/tar/MMDB/SHA-256/swap/.previous e painel com país/ASN. Nenhum banco ou credencial real foi usado; implantação não realizada.
-- Fase 6 implementada em desenvolvimento: regras globais/por site, score/níveis, tracker de janelas, bot verifier DNS, exceções, decay, modo 1/2/3, persistência de score/suspeitos no Redis e score no painel. Sem calibração real, sem bloqueio e sem implantação. Suíte com 99 testes aprovados.
+- Fase 6 implementada em desenvolvimento: regras globais/por site, score/níveis, tracker de janelas, bot verifier DNS, exceções, decay, modo 1/2/3, persistência de score/suspeitos no Redis e score no painel. Perfis geográficos `relaxed` (BR/US, 1.5x), `standard` (Europa, 1.0x) e `strict` (Ásia, Rússia e Liga Árabe, 0.5x), com precedência `strict > standard > relaxed`, fallback `standard` para país desconhecido e fator aplicado aos limites por site/janela; `criticalPathPerMinute` não recebe fator. Sem calibração real, sem bloqueio e sem implantação. Suíte com 108 testes aprovados.
 - Componentes implementados:
   - `src/server.js`: bootstrap, inicialização do coletor/Redis/pipeline e encerramento gracioso.
   - `src/app.js`: Fastify, logger com redaction, IDs de requisição, erros e 404.
@@ -109,8 +110,8 @@ Decisões já tomadas:
   - `src/collector/`: coletor UDP, parser syslog, parser/validação do evento.
   - `src/storage/`: cliente Redis, fila, plano de agregação, aggregator, consultas e chaves.
   - `src/enrichment/`: readers MaxMind Country/ASN, cache, modo degradado e updater independente.
-  - `src/classification/`: regras, tracker de janelas, bot verifier, score, exceções e modos.
-  - `config/classification.example.json`: exemplo de configuração global e por site.
+  - `src/classification/`: regras, perfis geográficos, tracker de janelas, bot verifier, score, exceções e modos.
+  - `config/classification.example.json`: exemplo de configuração global, perfis geográficos e por site.
   - `src/routes/health.js`: `/api/health`, `/api/ready`, `/api/stats`, `/api/summary`.
   - `src/routes/panel.js`: `/panel` e `/api/events/recent`.
   - `src/panel/`: HTML/CSS/JS do painel provisório 4A, com país/ASN, score/nível e saúde da classificação.
@@ -150,11 +151,11 @@ Concluir o **soak da Fase 4** e calibrar as Fases 5/6 em desenvolvimento:
 2. Acompanhar o painel em `http://127.0.0.1:8088/panel`, `/api/stats`, `/api/summary`, stream `events`, invalid, fila, Redis, score e níveis.
 3. Comparar contagens do log tradicional com os eventos aceitos.
 4. Registrar os resultados do soak em `docs/SOAK-24H-PENDENTE.md`.
-5. Calibrar pesos/limites da classificação com dados reais em modo monitoramento.
+5. Calibrar pesos, limites e fatores geográficos (`relaxed`/`standard`/`strict`) da classificação com dados reais em modo monitoramento.
 6. Em tarefa operacional separada, obter/copiar os bancos MaxMind reais, criar `.env` e ativar após a revisão.
 7. Não executar bloqueios nem iniciar a Fase 8 antes da revisão do soak e da decisão de produção.
 
-MaxMind e classificação estão implementados em dev, sem bancos/credenciais reais, calibração ou implantação. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
+MaxMind e classificação estão implementados em dev; a classificação inclui perfis geográficos, sem calibração real ou implantação. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
 
 ## 8. Documentos de referência
 
@@ -165,4 +166,5 @@ MaxMind e classificação estão implementados em dev, sem bancos/credenciais re
 - `docs/PAINEL-OBSERVACAO.md`: painel 4A, filtros, paginação, score, limites e procedimento do soak.
 - `docs/SOAK-24H-PENDENTE.md`: baseline, janela e comandos de reconciliação do soak.
 - `prompts/VALIDACAO-LOGS-ETAPA-FINAL.md`: prompt para implementar diagnóstico de cobertura entre log PHP dedicado e eventos Node FW por site/período, sem depender da retenção do stream.
+- `prompts/CLASSIFICACAO-GEOGRAFICA-FASE6.md`: prompt para estender a Fase 6 com perfis geográficos configuráveis em modo de observação; edição pelo painel fica para a Fase 7.
 - `config/classification.example.json`: exemplo de regras globais e por site da Fase 6.

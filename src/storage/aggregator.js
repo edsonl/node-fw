@@ -75,6 +75,11 @@ export async function writeAggregationPlan(client, plan, timeoutMs) {
             fields.push('lastCountry', entry.lastCountry);
         }
         fields.push(
+            'lastGeoProfile', entry.lastGeoProfile ?? '',
+            'lastGeoFactor', String(entry.lastGeoFactor ?? 1),
+            'lastGeoFallback', entry.lastGeoFallback ? '1' : '0'
+        );
+        fields.push(
             'score', String(entry.score ?? 0),
             'level', entry.level ?? 'normal',
             'reasons', entry.reasons ?? '[]',

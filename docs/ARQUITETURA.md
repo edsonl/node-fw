@@ -5,8 +5,8 @@
 | Projeto | Node FW |
 | Documento | Arquitetura e decisões técnicas |
 | Versão | 0.7.0 |
-| Data | 10/11/2026 |
-| Status | Fases 1 a 3 implementadas, piloto Nginx da Fase 4 ativo, painel 4A concluído, Fases 5 e 6 implementadas em desenvolvimento |
+| Data | 11/11/2026 |
+| Status | Fases 1 a 3 implementadas, piloto Nginx da Fase 4 ativo, painel 4A concluído, Fases 5 e 6 implementadas em desenvolvimento, incluindo perfis geográficos da Fase 6 |
 
 ## 1. Visão geral
 
@@ -298,6 +298,9 @@ Campos adicionados pelo Node FW:
   "country": "BR",
   "asn": 12345,
   "asn_org": "Provedor Exemplo",
+  "geoProfile": "relaxed",
+  "geoFactor": 1.5,
+  "geoFallback": false,
   "score": 42,
   "level": "suspeito",
   "reasons": ["rate_5m", "not_found_ratio"],
@@ -313,6 +316,7 @@ Regras de validação:
 - `status` deve estar entre 100 e 599.
 - `request_time` e `upstream_time` devem ser numéricos e limitados.
 - `user_agent` deve ser truncado e sanitizado.
+- `geoProfile`, `geoFactor` e `geoFallback` são campos de diagnóstico derivados do país enriquecido; não entram em `reasons` nem no cálculo de `blockEligible`.
 - Eventos com JSON inválido, campos ausentes ou tamanho excessivo são descartados e contabilizados.
 
 ## 7. Estratégia de Redis
@@ -346,7 +350,7 @@ Regras de validação:
 | `nodfw:v1:rank:ip:g:{window}:{bucket}` | sorted set | Ranking global de IPs | `max(2x janela, 60s)` |
 | `nodfw:v1:rank:ip:site:{site}:{window}:{bucket}` | sorted set | Ranking de IPs por site | `max(2x janela, 60s)` |
 | `nodfw:v1:ip:{ip}:sites` | set | Domínios acessados | 24h |
-| `nodfw:v1:score:ip:{ip}` | hash | Reputação: firstSeen, lastSeen, totalEvents, último site/status/método/país, score, level, reasons, scoredAt | 30d |
+| `nodfw:v1:score:ip:{ip}` | hash | Reputação: firstSeen, lastSeen, totalEvents, último site/status/método/país, perfil/fator geográfico, score, level, reasons, scoredAt | 30d |
 | `nodfw:v1:suspects` | sorted set | IPs em nível suspeito/crítico com score | 30d |
 | `nodfw:v1:events` | stream | Eventos recentes (`MAXLEN ~`), incluindo classificação | 50.000 entradas por padrão |
 
@@ -399,7 +403,7 @@ Operações:
 
 Bloqueado não é apenas uma faixa de score: é um estado operacional confirmado pelo Fail2Ban. A classificação atual apenas calcula `blockEligible`; não executa ação.
 
-**Implementação atual:** as regras são carregadas de `config/classification.json` (opcional) com defaults seguros; o modo 1 é o padrão. O tracker é local e limitado, mantendo janelas de 1/5/15 minutos, status, sites, burst e rotas críticas. O estado do tracker reinicia com o processo; o Redis mantém score/reputação, mas as janelas são reconstruídas após restart. Scores decaem com o tempo e são persistidos no hash de reputação e no stream Redis. Exceções por IP/CIDR/ASN/rota/bot verificado retornam ao nível normal e não geram elegibilidade.
+**Implementação atual:** as regras são carregadas de `config/classification.json` (opcional) com defaults seguros; o modo 1 é o padrão. O tracker é local e limitado, mantendo janelas de 1/5/15 minutos, status, sites, burst e rotas críticas. O estado do tracker reinicia com o processo; o Redis mantém score/reputação, mas as janelas são reconstruídas após restart. Scores decaem com o tempo e são persistidos no hash de reputação e no stream Redis. Exceções por IP/CIDR/ASN/rota/bot verificado retornam ao nível normal e não geram elegibilidade. Perfis geográficos ajustam somente limites de volume; não adicionam score nem motivos.
 
 ### 8.2 Sinais e pesos iniciais
 
@@ -454,6 +458,7 @@ A verificação roda em background, sem bloquear o coletor. Se falhar, o IP não
 - Limites de requisições por minuto/5m/15m, burst e rota crítica.
 - Rotas críticas e de autenticação.
 - Países com monitoramento reforçado.
+- Perfis geográficos e fatores de limite (`geoProfiles`).
 - Exceções por IP/CIDR, ASN, bot verificado e rota.
 - Modo de operação: 1, 2 ou 3.
 - Score mínimo, sinais mínimos e critérios de bloqueio.
@@ -461,7 +466,26 @@ A verificação roda em background, sem bloquear o coletor. Se falhar, o IP não
 
 Exceções são auditáveis no evento (`excluded` e motivo). Uma exceção não impede o registro; ela apenas zera o score e a elegibilidade. Alterações no arquivo exigem reinício do serviço nesta fase.
 
-### 8.5 Persistência de configuração
+### 8.5 Perfis geográficos
+
+O bloco `geoProfiles` ajusta apenas os limites de volume por IP/site. Ele não adiciona score, não cria motivos e não torna um evento elegível a bloqueio.
+
+| Perfil | Fator padrão | Cobertura padrão |
+|---|---:|---|
+| `relaxed` | 1.5 | Brasil e Estados Unidos (`BR`, `US`) |
+| `standard` | 1.0 | Lista explícita de países europeus (UN M49) |
+| `strict` | 0.5 | Lista explícita de países asiáticos (UN M49), Rússia e os 22 membros da Liga Árabe, incluindo `SG` |
+
+- As listas padrão foram versionadas em 11/11/2026 em `geoProfiles.metadata`; a fonte é UN M49 para Europa/Ásia e a Liga Árabe para os países árabes. Rússia é incluída explicitamente em `strict`.
+- Sobreposições são resolvidas por `strict > standard > relaxed`. Assim, `RU`, países árabes e países transcontinentais presentes na lista asiática permanecem `strict`, mesmo que também apareçam em `standard`.
+- O limite efetivo de cada janela é `limite-base global ou override do site × fator geográfico × multiplicador de bot verificado`. O fator é aplicado a `perMinute`, `per5m`, `per15m` e `burst10s`.
+- `criticalPathPerMinute` não recebe fator geográfico. O perfil Leve não afrouxa e o Rigoroso não endurece esse limite; a decisão fica documentada no evento e nos testes.
+- País ausente, nulo, inválido ou não listado usa `unknownProfile` (padrão `standard`) e registra `geoFallback=true` apenas para diagnóstico. A ausência de país não adiciona score.
+- `countries.home` e `countries.monitored` continuam com o significado anterior e não são alterados pelo perfil. O peso `foreignCountry` permanece independente; para tratar um país como doméstico, o operador deve alterar `countries.home` explicitamente.
+- `geoProfile`, `geoFactor` e `geoFallback` são persistidos no stream/reputação e exibidos apenas como diagnóstico no painel. O painel não permite editar perfis.
+- Configuração inválida (ISO fora de alpha-2, fator fora de 0.1–3.0, ordem invertida, grupo/perfil desconhecido ou `unknownProfile=relaxed`) cai para defaults seguros e modo 1.
+
+### 8.6 Persistência de configuração
 
 - Configuração em JSON versionado em `config/classification.json` (exemplo em `config/classification.example.json`).
 - O loader valida modos, thresholds, pesos, limites e arrays; configuração inválida cai para defaults e reporta o erro em `/api/stats`.
@@ -713,9 +737,11 @@ As metas devem ser revalidadas com carga real antes da Fase 9.
 | Query string removida | Registrar URL completa | Evita vazamento de tokens e dados sensíveis |
 | Log apenas em locations PHP | Log no server inteiro | Evita volume de estáticos |
 | Jail separado | Reutilizar `nginx-wishlist` | Isolamento e não regressão |
+| Perfil geográfico multiplica limites, sem score | Adicionar peso por perfil/país | Evita dupla penalização e mantém localização como contexto, não evidência isolada |
+| `criticalPathPerMinute` sem fator geográfico | Multiplicar também rotas críticas | Impede afrouxamento no perfil Leve e mantém limite global seguro |
 | Modo monitoramento inicial | Bloqueio automático imediato | Calibração e prevenção de falsos positivos |
 
-## 16. Estado da implementação (Fases 4 — piloto, 4A e 5 — dev)
+## 16. Estado da implementação (Fases 4 — piloto, 4A, 5 e 6 — dev)
 
 Implementado:
 
@@ -744,9 +770,12 @@ Implementado:
 - Updater independente com timeout, retry, lock, tar validado, MMDB validado, SHA-256, troca atômica, `.previous`, manifesto sem segredos e rollback.
 - Eventos carregam `country`, `asn` e `asnOrg`; o painel exibe a origem e o estado do MaxMind.
 - Classificação local com score/nível/motivos, tracker de janelas, decays, exceções, regras por site e modo 1/2/3.
+- Perfis geográficos configuráveis (`relaxed` 1.5x, `standard` 1.0x, `strict` 0.5x), com listas ISO versionadas, precedência `strict > standard > relaxed` e fallback `standard` para país ausente/inválido.
+- Fator geográfico aplicado a 1m/5m/15m/burst e multiplicado por overrides de site; `criticalPathPerMinute` permanece sem fator.
+- `geoProfile`, `geoFactor` e `geoFallback` gravados no stream/reputação e exibidos como diagnóstico no painel, sem edição pela UI.
 - Bot verifier DNS reverso/direto com cache e faixas opcionais; modo monitoramento é o padrão.
 - Score, nível e motivos são gravados no stream e na reputação Redis; suspeitos entram no zset `suspects`.
-- 99 testes automatizados aprovados, incluindo fixtures/mocks de MaxMind, bots e regras.
+- 108 testes automatizados aprovados, incluindo fixtures/mocks de MaxMind, bots, regras e perfis geográficos.
 
 Pendente na Fase 4:
 
@@ -763,7 +792,7 @@ Pendente na Fase 5:
 
 Pendente na Fase 6:
 
-- Calibração de pesos, limites e exceções com tráfego real do piloto.
+- Calibração de pesos, limites, fatores geográficos e exceções com tráfego real do piloto.
 - Revisão do modo de operação e dos critérios de bloqueio com dados reais.
 - Aprovação explícita antes de qualquer ação de bloqueio/Fail2Ban.
 

@@ -59,6 +59,9 @@ function baseFields(overrides = {}) {
         country: 'BR',
         asn: '12345',
         asnOrg: 'Provedor Exemplo',
+        geoProfile: 'relaxed',
+        geoFactor: '1.5',
+        geoFallback: '0',
         score: '60',
         level: 'suspect',
         reasons: JSON.stringify(['rate_1m:3/1']),
@@ -139,12 +142,36 @@ test('recent events strip query strings and truncate User-Agent', async () => {
     assert.equal(event.country, 'BR');
     assert.equal(event.asn, 12345);
     assert.equal(event.asnOrg, 'Provedor Exemplo');
+    assert.equal(event.geoProfile, 'relaxed');
+    assert.equal(event.geoFactor, 1.5);
+    assert.equal(event.geoFallback, false);
     assert.equal(event.score, 60);
     assert.equal(event.level, 'suspect');
     assert.deepEqual(event.reasons, ['rate_1m:3/1']);
     assert.equal(event.mode, 1);
     assert.equal(event.blockEligible, false);
     assert.equal(event.excluded, false);
+});
+
+test('recent events sanitize geographic profile diagnostics', async () => {
+    const entries = [
+        streamEntry('1000-0', baseFields({
+            geoProfile: 'custom',
+            geoFactor: '9',
+            geoFallback: '1',
+        })),
+    ];
+    const queries = createRedisQueries({
+        redis: createFakeRedis(entries),
+        config,
+    });
+
+    const result = await queries.getRecentEvents({ limit: 1 });
+    const event = result.events[0];
+
+    assert.equal(event.geoProfile, null);
+    assert.equal(event.geoFactor, null);
+    assert.equal(event.geoFallback, true);
 });
 
 test('recent events validate filters, cursor and page size', async () => {

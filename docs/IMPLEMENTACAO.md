@@ -6,8 +6,8 @@
 | Diretório | `/home/edson/www/node-fw/` |
 | Documento | Plano de implementação e checklist |
 | Versão | 0.7.0 |
-| Data | 10/11/2026 |
-| Status | Fases 1 a 3 concluídas; Fase 4 piloto/soak em andamento; 4A concluída; Fases 5 e 6 implementadas em desenvolvimento, sem implantação em produção |
+| Data | 11/11/2026 |
+| Status | Fases 1 a 3 concluídas; Fase 4 piloto/soak em andamento; 4A concluída; Fases 5 e 6 implementadas em desenvolvimento; Fase 6 estendida com perfis geográficos, sem implantação em produção |
 | Responsável | Equipe Node FW |
 
 ## 1. Objetivo
@@ -233,7 +233,7 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 ### Fase 6 — Classificação
 
-**Status: implementação em desenvolvimento concluída em 10/11/2026; não implantada, sem bloqueio e sem calibração com dados reais.**
+**Status: implementação em desenvolvimento concluída em 10/11/2026; perfis geográficos adicionados em 11/11/2026; não implantada, sem bloqueio e sem calibração com dados reais.**
 
 - [x] Definir modelo de regras globais e por site em JSON (`config/classification.json` opcional).
 - [x] Implementar pontuação e níveis Normal/Observação/Suspeito/Crítico.
@@ -243,6 +243,11 @@ Inspeção somente leitura realizada em 05/11/2026.
 - [x] Implementar detecção de varredura de rotas, excesso de 404/403/429, métodos de autenticação e User-Agent suspeito.
 - [x] Implementar decaimento de score e reincidência.
 - [x] Implementar exceções por IP/CIDR, ASN, bot verificado e rota.
+- [x] Implementar perfis geográficos configuráveis com listas ISO alpha-2 versionadas (`relaxed`, `standard`, `strict`).
+- [x] Aplicar fator geográfico sobre os limites por IP/site em 1m, 5m, 15m e burst, preservando overrides por site.
+- [x] Manter `criticalPathPerMinute` sem fator geográfico; Leve não afrouxa e Rigoroso não altera rotas críticas.
+- [x] Usar perfil `standard` para país ausente, inválido ou não listado, sem adicionar score.
+- [x] Expor `geoProfile`, `geoFactor` e `geoFallback` como diagnóstico no stream e no painel, sem edição pela UI.
 - [x] Implementar configuração por site e modos 1/2/3.
 - [x] Manter modo 1 como padrão; nenhuma ação de bloqueio é executada.
 - [x] Calcular elegibilidade de bloqueio sem escrever no Fail2Ban.
@@ -250,11 +255,15 @@ Inspeção somente leitura realizada em 05/11/2026.
 - [x] Criar zset `suspects` para score suspeito/crítico.
 - [x] Exibir score/nível no painel provisório.
 - [x] Criar testes de ataque, falsos positivos, bots, exceções, decay, site override e modo.
-- [ ] Calibrar pesos e limites com dados reais do piloto.
+- [x] Testar BR/US, Europa, Ásia, Rússia, Singapura, Liga Árabe, sobreposição de grupos e país desconhecido.
+- [x] Testar multiplicação por site/janela, rota crítica, modo 1 e regressão de configuração.
+- [ ] Calibrar pesos, limites e fatores geográficos com dados reais do piloto.
 - [ ] Validar o comportamento das janelas após restart (o tracker é em memória; a reputação Redis persiste).
 - [ ] Revisar o soak e decidir a implantação; não ativar bloqueio nesta fase.
 
-**Entregue em desenvolvimento:** `src/classification/classifier.js`, `ip-tracker.js`, `bot-verifier.js`, `rules.js`, `config/classification.example.json`, persistência de score/suspeitos no Redis e painel. A suíte total tem 99 testes aprovados. O último teste integrado gerou um evento com score 30, nível `observation`, motivos `critical_path` e `empty_user_agent`, e reputação Redis correspondente. Nenhum bloqueio foi executado.
+**Entregue em desenvolvimento:** `src/classification/classifier.js`, `ip-tracker.js`, `bot-verifier.js`, `rules.js`, `config/classification.example.json`, persistência de score/suspeitos no Redis e painel. A suíte total tem 108 testes aprovados. O último teste integrado gerou um evento com score 30, nível `observation`, motivos `critical_path` e `empty_user_agent`, e reputação Redis correspondente. Nenhum bloqueio foi executado.
+
+**Perfis geográficos (11/11/2026):** `relaxed` = BR/US com fator `1.5`; `standard` = lista explícita da Europa (UN M49) com fator `1.0`; `strict` = lista da Ásia (UN M49), Rússia e os 22 membros da Liga Árabe com fator `0.5`, incluindo Singapura. Sobreposições usam `strict > standard > relaxed`; Rússia e países árabes permanecem em `strict`. País ausente/inválido/não listado usa `standard` e registra `geoFallback`, sem motivo de score. O limite efetivo é `base global ou override do site × fator geográfico × multiplicador de bot verificado`, aplicado a 1m, 5m, 15m e burst; `criticalPathPerMinute` não recebe fator geográfico. O perfil não adiciona score nem elegibilidade; `countries.home` e `countries.monitored` mantêm o significado anterior.
 
 **Critérios de conclusão:** decisões explicáveis e auditáveis, país nunca é motivo isolado de bloqueio, bots legítimos não são penalizados indevidamente e modo simulação é o padrão. A calibração com dados reais e a decisão de produção permanecem pendentes.
 
@@ -346,7 +355,7 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 | 4 — Nginx | Piloto ativo; soak operacional observado | Estabilidade do coletor observada por mais de 24h; reconciliação dos deltas de logs iniciada em 10/11/2026; expansão pendente. Ver `docs/SOAK-24H-PENDENTE.md` |
 | 4A — Painel provisório | Implementado | 06/11/2026; eventos reais observados; registro final do soak pendente |
 | 5 — MaxMind | Implementada em desenvolvimento | 10/11/2026; bancos/credenciais reais, implantação e ativação pendentes |
-| 6 — Classificação | Implementada em desenvolvimento | 10/11/2026; sem bloqueio, sem calibração real e sem implantação |
+| 6 — Classificação | Implementada em desenvolvimento | 10/11/2026; perfis geográficos em 11/11/2026; sem bloqueio, sem calibração real e sem implantação |
 | 7 — Painel | Não iniciada | — |
 | 8 — Fail2Ban | Não iniciada | — |
 | 9 — Produção | Não iniciada | — |
@@ -383,6 +392,8 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 | D010 | Nenhum código, módulo ou link do projeto `node-anti-span` será reutilizado |
 | D011 | Escritas no Redis serão em lote, com fila limitada e descarte explícito |
 | D012 | O painel será servido atrás de proxy com TLS e não ficará exposto diretamente |
+| D013 | Perfis geográficos ajustam somente limites de volume por fator; não adicionam score e não tornam localização evidência isolada |
+| D014 | `criticalPathPerMinute` não recebe fator geográfico; Leve não afrouxa e Rigoroso não altera rotas críticas |
 
 ## 10. Próximos passos
 
@@ -391,7 +402,7 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 3. Comparar contagens contínuas com o log tradicional do piloto e registrar os resultados em `docs/SOAK-24H-PENDENTE.md`.
 4. Revisar o soak e decidir a passagem operacional da Fase 4; painel 4A, MaxMind e classificação em dev não substituem essa decisão.
 5. Obter/copiar os bancos MaxMind reais e configurar credenciais em produção apenas em tarefa operacional separada.
-6. Calibrar pesos e limites da classificação com dados reais do piloto em modo monitoramento.
+6. Calibrar pesos, limites e fatores geográficos da classificação com dados reais do piloto em modo monitoramento.
 7. Não executar bloqueios nem iniciar a Fase 8 antes da revisão do soak e da decisão de produção.
 
 ## Apêndice A — Execução local e simulação de eventos
@@ -486,12 +497,12 @@ O comando não roda no startup. Ele usa lock, retry limitado, tar validado, MMDB
 
 ### Classificação em desenvolvimento
 
-Sem `config/classification.json`, os defaults seguros são usados (modo 1, sem bloqueio). Para usar regras por site:
+Sem `config/classification.json`, os defaults seguros são usados (modo 1, sem bloqueio). O arquivo `config/classification.example.json` é apenas referência e não é carregado automaticamente. Para usar regras por site e personalizar os perfis geográficos:
 
 ```bash
 cp config/classification.example.json config/classification.json
 ```
 
-Edite o arquivo e reinicie o serviço. O loader valida o JSON; configuração inválida cai para defaults e aparece em `/api/stats`. O painel mostra score/nível; `blockEligible` é apenas calculado, sem Fail2Ban.
+Edite o arquivo e reinicie o serviço. O bloco `geoProfiles` define `enabled`, `unknownProfile`, os fatores `relaxed`/`standard`/`strict`, as listas ISO alpha-2 e os metadados de versão/fonte. O limite efetivo é `base global ou override do site × fator geográfico × multiplicador de bot verificado` para 1m/5m/15m/burst; `criticalPathPerMinute` não recebe fator. País desconhecido usa `standard` e é marcado como `geoFallback`, sem score adicional. O loader valida o JSON; configuração inválida cai para defaults e aparece em `/api/stats`. O painel mostra score/nível e o perfil geográfico apenas no diagnóstico; `blockEligible` é apenas calculado, sem Fail2Ban.
 
 Para encerrar, use `Ctrl+C` ou `SIGTERM`; o coletor fecha o socket, o pipeline tenta o último lote e a API encerra de forma graciosa.

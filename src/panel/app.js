@@ -235,8 +235,18 @@
                 origin.push(`AS${event.asn}`);
             }
             originCell.textContent = origin.length > 0 ? origin.join(' · ') : '—';
+            const originDetails = [];
             if (event.asnOrg) {
-                originCell.title = event.asnOrg;
+                originDetails.push(event.asnOrg);
+            }
+            if (event.geoProfile) {
+                originDetails.push(`perfil ${event.geoProfile} ×${event.geoFactor ?? 1}`);
+            }
+            if (event.geoFallback) {
+                originDetails.push('país ausente: perfil padrão');
+            }
+            if (originDetails.length > 0) {
+                originCell.title = originDetails.join(' · ');
             }
             row.append(originCell);
 
@@ -484,6 +494,11 @@
         const modes = classification?.modeCounts
             ? Object.entries(classification.modeCounts).map(([mode, count]) => `modo ${mode}: ${formatNumber(count)}`).join(' · ')
             : '—';
+        const geoProfiles = classification?.geoProfileCounts
+            ? Object.entries(classification.geoProfileCounts)
+                .map(([profile, count]) => `${profile}: ${formatNumber(count)}`)
+                .join(' · ')
+            : '—';
         items.push(addHealthItem('Classificação', [
             ['decisões', classification ? formatNumber(classification.decisions) : '—'],
             ['normal', classification ? formatNumber(classification.levelCounts?.normal) : '—'],
@@ -494,6 +509,7 @@
             ['exceções', classification ? formatNumber(classification.hardExceptions) : '—'],
             ['erros', classification ? formatNumber(classification.errors) : '—'],
             ['modos', modes],
+            ['perfis geográficos', geoProfiles],
             ['regras', classification?.rulesSource ?? '—'],
         ]));
 

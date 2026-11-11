@@ -52,6 +52,9 @@ test('builds counters, windows, rankings, reputation and stream entries', () => 
         mode: 1,
         blockEligible: false,
         excluded: false,
+        geoProfile: 'strict',
+        geoFactor: 0.5,
+        geoFallback: false,
     });
 
     const plan = buildAggregationPlan([first, second], {
@@ -92,6 +95,9 @@ test('builds counters, windows, rankings, reputation and stream entries', () => 
     assert.equal(reputation.lastSeen, '2026-11-05T17:00:20.000Z');
     assert.equal(reputation.lastStatus, 404);
     assert.equal(reputation.lastCountry, 'BR');
+    assert.equal(reputation.lastGeoProfile, 'strict');
+    assert.equal(reputation.lastGeoFactor, 0.5);
+    assert.equal(reputation.lastGeoFallback, false);
     assert.equal(reputation.score, 60);
     assert.equal(reputation.level, 'suspect');
     assert.equal(reputation.reasons, '["rate_1m:3/1"]');
@@ -107,6 +113,9 @@ test('builds counters, windows, rankings, reputation and stream entries', () => 
     assert.equal(fields[fields.indexOf('path') + 1], '/b');
     assert.equal(fields[fields.indexOf('status') + 1], '404');
     assert.equal(fields[fields.indexOf('dynamic') + 1], '1');
+    assert.equal(fields[fields.indexOf('geoProfile') + 1], 'strict');
+    assert.equal(fields[fields.indexOf('geoFactor') + 1], '0.5');
+    assert.equal(fields[fields.indexOf('geoFallback') + 1], '0');
     assert.equal(fields[fields.indexOf('score') + 1], '60');
     assert.equal(fields[fields.indexOf('level') + 1], 'suspect');
     assert.equal(fields[fields.indexOf('reasons') + 1], '["rate_1m:3/1"]');
