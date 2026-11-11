@@ -17,6 +17,8 @@ export function buildApp({
     getCollectorStats = () => null,
     getPipelineStats = () => null,
     getRedisStats = () => null,
+    getMaxMindStats = () => null,
+    getClassificationStats = () => null,
     getSummary = null,
     getRecentEvents = null,
     logger,
@@ -46,6 +48,8 @@ export function buildApp({
         getCollectorStats,
         getPipelineStats,
         getRedisStats,
+        getMaxMindStats,
+        getClassificationStats,
         getSummary,
         serviceName: config.serviceName,
     });

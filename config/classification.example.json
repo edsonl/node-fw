@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "mode": 1,
+  "thresholds": {
+    "observation": 25,
+    "suspect": 50,
+    "critical": 75,
+    "block": 85
+  },
+  "minimumSignalsForBlock": 2,
+  "weights": {
+    "foreignCountry": 15,
+    "monitoredCountry": 5,
+    "hostingAsn": 10,
+    "rateAboveLimit": 10,
+    "rate3x": 20,
+    "rate10x": 35,
+    "rate5m": 15,
+    "rate15m": 15,
+    "burst": 15,
+    "notFoundRatio": 20,
+    "deniedRatio": 15,
+    "criticalPath": 20,
+    "criticalPathCap": 30,
+    "emptyUserAgent": 10,
+    "authPost": 20,
+    "botClaimPending": 5,
+    "botClaimUnverified": 25,
+    "verifiedBot": -40,
+    "reincidence": 25,
+    "multiSite": 15,
+    "criticalPathRate": 10
+  },
+  "rateLimits": {
+    "perMinute": 120,
+    "per5m": 300,
+    "per15m": 600,
+    "burst10s": 20,
+    "criticalPathPerMinute": 10
+  },
+  "countries": {
+    "home": [
+      "BR"
+    ],
+    "monitored": []
+  },
+  "hostingAsns": [],
+  "hostingOrgPatterns": [],
+  "criticalPaths": [
+    "/.env",
+    "/.git",
+    "/.aws",
+    "/.ssh",
+    "/wp-login.php",
+    "/xmlrpc.php",
+    "/wp-admin",
+    "/admin",
+    "/phpmyadmin",
+    "/cgi-bin",
+    "/vendor/phpunit",
+    "/server-status"
+  ],
+  "authPaths": [
+    "/wp-login.php",
+    "/xmlrpc.php",
+    "/admin",
+    "/login",
+    "/customer/account/login",
+    "/checkout"
+  ],
+  "exceptions": {
+    "ips": [],
+    "cidrs": [],
+    "asns": [],
+    "paths": [],
+    "verifiedBots": false
+  },
+  "botVerification": {
+    "googleRanges": [],
+    "bingRanges": [],
+    "cacheTtlMs": 86400000,
+    "maxEntries": 10000,
+    "rateMultiplier": 3
+  },
+  "state": {
+    "maxTrackedIps": 50000,
+    "decayPerMinute": 1
+  },
+  "multiSiteThreshold": 3,
+  "sites": {
+    "casadoppia.site": {
+      "mode": 1,
+      "rateLimits": {
+        "perMinute": 180
+      }
+    }
+  }
+}

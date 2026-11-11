@@ -21,6 +21,12 @@ test('loadConfig applies safe defaults', () => {
     assert.equal(config.redis.batchSize, 200);
     assert.equal(config.redis.queueMaxSize, 10000);
     assert.equal(config.redis.eventStreamEnabled, true);
+    assert.equal(config.maxmind.enabled, true);
+    assert.match(config.maxmind.dbDir, /data\/geolite2$/);
+    assert.equal(config.maxmind.refreshMaxAgeDays, 3);
+    assert.equal(config.maxmind.downloadRetries, 3);
+    assert.equal(config.maxmind.cacheMaxEntries, 10000);
+    assert.match(config.classification.configPath, /config\/classification\.json$/);
 });
 
 test('loadConfig parses explicit values', () => {
@@ -45,6 +51,18 @@ test('loadConfig parses explicit values', () => {
         REDIS_QUEUE_MAX_SIZE: '5000',
         REDIS_EVENT_STREAM_ENABLED: 'false',
         REDIS_EVENT_STREAM_MAXLEN: '10000',
+        MAXMIND_ENABLED: 'false',
+        MAXMIND_DB_DIR: './tmp/maxmind-test',
+        MAXMIND_ACCOUNT_ID: 'account-test',
+        MAXMIND_LICENSE_KEY: 'license-test',
+        MAXMIND_REFRESH_MAX_AGE_DAYS: '5',
+        MAXMIND_DOWNLOAD_TIMEOUT_MS: '5000',
+        MAXMIND_DOWNLOAD_RETRIES: '2',
+        MAXMIND_RETRY_BACKOFF_MS: '0',
+        MAXMIND_CACHE_MAX_ENTRIES: '500',
+        MAXMIND_CACHE_TTL_MS: '60000',
+        MAXMIND_LOCK_STALE_MS: '120000',
+        CLASSIFICATION_CONFIG_PATH: './config/classification-test.json',
     });
 
     assert.equal(config.nodeEnv, 'production');
@@ -67,6 +85,18 @@ test('loadConfig parses explicit values', () => {
     assert.equal(config.redis.queueMaxSize, 5000);
     assert.equal(config.redis.eventStreamEnabled, false);
     assert.equal(config.redis.eventStreamMaxlen, 10000);
+    assert.equal(config.maxmind.enabled, false);
+    assert.match(config.maxmind.dbDir, /tmp\/maxmind-test$/);
+    assert.equal(config.maxmind.accountId, 'account-test');
+    assert.equal(config.maxmind.licenseKey, 'license-test');
+    assert.equal(config.maxmind.refreshMaxAgeDays, 5);
+    assert.equal(config.maxmind.downloadTimeoutMs, 5000);
+    assert.equal(config.maxmind.downloadRetries, 2);
+    assert.equal(config.maxmind.retryBackoffMs, 0);
+    assert.equal(config.maxmind.cacheMaxEntries, 500);
+    assert.equal(config.maxmind.cacheTtlMs, 60000);
+    assert.equal(config.maxmind.lockStaleMs, 120000);
+    assert.match(config.classification.configPath, /config\/classification-test\.json$/);
 });
 
 test('loadConfig rejects non-loopback API and UDP hosts', () => {
@@ -100,10 +130,21 @@ test('loadConfig rejects invalid Redis settings', () => {
     assert.throws(() => loadConfig({ REDIS_EVENT_STREAM_MAXLEN: '10' }), ConfigError);
 });
 
+test('loadConfig rejects invalid MaxMind settings', () => {
+    assert.throws(() => loadConfig({ MAXMIND_ENABLED: 'maybe' }), ConfigError);
+    assert.throws(() => loadConfig({ MAXMIND_REFRESH_MAX_AGE_DAYS: '0' }), ConfigError);
+    assert.throws(() => loadConfig({ MAXMIND_DOWNLOAD_RETRIES: '99' }), ConfigError);
+    assert.throws(() => loadConfig({ MAXMIND_CACHE_MAX_ENTRIES: '10' }), ConfigError);
+    assert.throws(() => loadConfig({ MAXMIND_CACHE_TTL_MS: '10' }), ConfigError);
+    assert.throws(() => loadConfig({ MAXMIND_LICENSE_KEY: 'x'.repeat(300) }), ConfigError);
+});
+
 test('toSafeConfig returns only configuration fields', () => {
     const safe = toSafeConfig(loadConfig({
         LOG_LEVEL: 'silent',
         REDIS_URL: 'redis://user:secret@127.0.0.1:6379',
+        MAXMIND_ACCOUNT_ID: 'account-secret',
+        MAXMIND_LICENSE_KEY: 'license-secret',
     }));
 
     assert.equal(safe.logLevel, 'silent');
@@ -111,5 +152,8 @@ test('toSafeConfig returns only configuration fields', () => {
     assert.equal(safe.udp.port, 5514);
     assert.equal('MAXMIND_LICENSE_KEY' in safe, false);
     assert.equal('url' in safe.redis, false);
+    assert.equal('accountId' in safe.maxmind, false);
+    assert.equal('licenseKey' in safe.maxmind, false);
+    assert.match(safe.classification.configPath, /classification\.json$/);
     assert.equal(JSON.stringify(safe).includes('secret'), false);
 });

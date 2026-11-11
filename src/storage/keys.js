@@ -26,6 +26,7 @@ export function createKeyBuilder(prefix) {
         siteIpRank: (site, window, bucket) => key('rank', 'ip', 'site', site, window, bucket),
         ipSites: (ip) => key('ip', ip, 'sites'),
         reputation: (ip) => key('score', 'ip', ip),
+        suspects: () => key('suspects'),
         eventStream: () => key('events'),
     });
 }

@@ -5,6 +5,8 @@ export async function healthRoutes(app, options) {
         getCollectorStats = () => null,
         getPipelineStats = () => null,
         getRedisStats = () => null,
+        getMaxMindStats = () => null,
+        getClassificationStats = () => null,
         getSummary = null,
         serviceName = 'node-fw',
     } = options;
@@ -12,6 +14,8 @@ export async function healthRoutes(app, options) {
     app.get('/api/health', async (request, reply) => {
         const collector = getCollectorStats();
         const redis = getRedisStats();
+        const maxmind = getMaxMindStats();
+        const classification = getClassificationStats();
 
         reply.header('Cache-Control', 'no-store');
         return {
@@ -32,16 +36,36 @@ export async function healthRoutes(app, options) {
                     database: redis.database,
                 }
                 : null,
+            maxmind: maxmind
+                ? {
+                    enabled: maxmind.enabled,
+                    countryReady: maxmind.countryReady,
+                    asnReady: maxmind.asnReady,
+                    degraded: maxmind.degraded,
+                }
+                : null,
+            classification: classification
+                ? {
+                    decisions: classification.decisions,
+                    levels: classification.levelCounts,
+                    modeCounts: classification.modeCounts,
+                }
+                : null,
         };
     });
 
     app.get('/api/ready', async (request, reply) => {
         const collector = getCollectorStats();
         const redis = getRedisStats();
+        const maxmind = getMaxMindStats();
+        const classification = getClassificationStats();
         const collectorReady = Boolean(collector?.started);
         const redisRequired = redis !== null && redis !== undefined;
         const redisReady = !redisRequired || redis.ready === true;
         const ready = collectorReady && redisReady;
+        const maxmindStatus = maxmind
+            ? (maxmind.countryReady && maxmind.asnReady ? 'ok' : 'degraded')
+            : 'not_configured';
 
         reply.header('Cache-Control', 'no-store');
         reply.code(ready ? 200 : 503);
@@ -51,6 +75,8 @@ export async function healthRoutes(app, options) {
             checks: {
                 collector: collectorReady ? 'ok' : 'down',
                 redis: redisRequired ? (redisReady ? 'ok' : 'down') : 'not_configured',
+                maxmind: maxmindStatus,
+                classification: classification ? 'ok' : 'not_configured',
             },
         };
     });
@@ -59,6 +85,8 @@ export async function healthRoutes(app, options) {
         const collector = getCollectorStats();
         const pipeline = getPipelineStats();
         const redis = getRedisStats();
+        const maxmind = getMaxMindStats();
+        const classification = getClassificationStats();
 
         reply.header('Cache-Control', 'no-store');
         if (!collector) {
@@ -69,6 +97,8 @@ export async function healthRoutes(app, options) {
                 collector: null,
                 pipeline,
                 redis,
+                maxmind,
+                classification,
             };
         }
 
@@ -78,6 +108,8 @@ export async function healthRoutes(app, options) {
             collector,
             pipeline,
             redis,
+            maxmind,
+            classification,
         };
     });
 

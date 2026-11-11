@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 const LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
 const SERVICE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -30,6 +32,16 @@ const DEFAULTS = Object.freeze({
     redisQueueMaxSize: 10000,
     redisEventStreamEnabled: true,
     redisEventStreamMaxlen: 50000,
+    maxmindEnabled: true,
+    maxmindDbDir: './data/geolite2',
+    maxmindRefreshMaxAgeDays: 3,
+    maxmindDownloadTimeoutMs: 120000,
+    maxmindDownloadRetries: 3,
+    maxmindRetryBackoffMs: 500,
+    maxmindCacheMaxEntries: 10000,
+    maxmindCacheTtlMs: 300000,
+    maxmindLockStaleMs: 900000,
+    classificationConfigPath: './config/classification.json',
 });
 
 export class ConfigError extends Error {
@@ -52,6 +64,18 @@ function readRaw(env, name) {
 
 function readString(env, name, fallback, maxLength) {
     const value = readRaw(env, name) ?? fallback;
+    if (value.length > maxLength) {
+        throw new ConfigError(`${name} exceeds the maximum length`);
+    }
+
+    return value;
+}
+
+function readOptionalString(env, name, maxLength) {
+    const value = readRaw(env, name);
+    if (value === undefined) {
+        return '';
+    }
     if (value.length > maxLength) {
         throw new ConfigError(`${name} exceeds the maximum length`);
     }
@@ -244,6 +268,73 @@ export function loadConfig(env = process.env) {
         1000000
     );
 
+    const maxmindEnabled = readBoolean(env, 'MAXMIND_ENABLED', DEFAULTS.maxmindEnabled);
+    const maxmindDbDir = resolve(
+        process.cwd(),
+        readString(env, 'MAXMIND_DB_DIR', DEFAULTS.maxmindDbDir, 512)
+    );
+    const maxmindAccountId = readOptionalString(env, 'MAXMIND_ACCOUNT_ID', 64);
+    const maxmindLicenseKey = readOptionalString(env, 'MAXMIND_LICENSE_KEY', 256);
+    const maxmindRefreshMaxAgeDays = readInteger(
+        env,
+        'MAXMIND_REFRESH_MAX_AGE_DAYS',
+        DEFAULTS.maxmindRefreshMaxAgeDays,
+        1,
+        90
+    );
+    const maxmindDownloadTimeoutMs = readInteger(
+        env,
+        'MAXMIND_DOWNLOAD_TIMEOUT_MS',
+        DEFAULTS.maxmindDownloadTimeoutMs,
+        1000,
+        600000
+    );
+    const maxmindDownloadRetries = readInteger(
+        env,
+        'MAXMIND_DOWNLOAD_RETRIES',
+        DEFAULTS.maxmindDownloadRetries,
+        0,
+        5
+    );
+    const maxmindRetryBackoffMs = readInteger(
+        env,
+        'MAXMIND_RETRY_BACKOFF_MS',
+        DEFAULTS.maxmindRetryBackoffMs,
+        0,
+        60000
+    );
+    const maxmindCacheMaxEntries = readInteger(
+        env,
+        'MAXMIND_CACHE_MAX_ENTRIES',
+        DEFAULTS.maxmindCacheMaxEntries,
+        100,
+        100000
+    );
+    const maxmindCacheTtlMs = readInteger(
+        env,
+        'MAXMIND_CACHE_TTL_MS',
+        DEFAULTS.maxmindCacheTtlMs,
+        1000,
+        86400000
+    );
+    const maxmindLockStaleMs = readInteger(
+        env,
+        'MAXMIND_LOCK_STALE_MS',
+        DEFAULTS.maxmindLockStaleMs,
+        60000,
+        86400000
+    );
+
+    const classificationConfigPath = resolve(
+        process.cwd(),
+        readString(
+            env,
+            'CLASSIFICATION_CONFIG_PATH',
+            DEFAULTS.classificationConfigPath,
+            512
+        )
+    );
+
     return Object.freeze({
         nodeEnv,
         serviceName,
@@ -276,6 +367,22 @@ export function loadConfig(env = process.env) {
             queueMaxSize: redisQueueMaxSize,
             eventStreamEnabled: redisEventStreamEnabled,
             eventStreamMaxlen: redisEventStreamMaxlen,
+        }),
+        maxmind: Object.freeze({
+            enabled: maxmindEnabled,
+            dbDir: maxmindDbDir,
+            accountId: maxmindAccountId,
+            licenseKey: maxmindLicenseKey,
+            refreshMaxAgeDays: maxmindRefreshMaxAgeDays,
+            downloadTimeoutMs: maxmindDownloadTimeoutMs,
+            downloadRetries: maxmindDownloadRetries,
+            retryBackoffMs: maxmindRetryBackoffMs,
+            cacheMaxEntries: maxmindCacheMaxEntries,
+            cacheTtlMs: maxmindCacheTtlMs,
+            lockStaleMs: maxmindLockStaleMs,
+        }),
+        classification: Object.freeze({
+            configPath: classificationConfigPath,
         }),
         shutdownTimeoutMs,
     });
@@ -313,6 +420,20 @@ export function toSafeConfig(config) {
             queueMaxSize: config.redis.queueMaxSize,
             eventStreamEnabled: config.redis.eventStreamEnabled,
             eventStreamMaxlen: config.redis.eventStreamMaxlen,
+        },
+        maxmind: {
+            enabled: config.maxmind.enabled,
+            dbDir: config.maxmind.dbDir,
+            refreshMaxAgeDays: config.maxmind.refreshMaxAgeDays,
+            downloadTimeoutMs: config.maxmind.downloadTimeoutMs,
+            downloadRetries: config.maxmind.downloadRetries,
+            retryBackoffMs: config.maxmind.retryBackoffMs,
+            cacheMaxEntries: config.maxmind.cacheMaxEntries,
+            cacheTtlMs: config.maxmind.cacheTtlMs,
+            lockStaleMs: config.maxmind.lockStaleMs,
+        },
+        classification: {
+            configPath: config.classification.configPath,
         },
         shutdownTimeoutMs: config.shutdownTimeoutMs,
     };

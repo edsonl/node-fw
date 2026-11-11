@@ -56,6 +56,15 @@ function baseFields(overrides = {}) {
         requestTime: '0.042',
         dynamic: '1',
         userAgent: 'Mozilla/5.0',
+        country: 'BR',
+        asn: '12345',
+        asnOrg: 'Provedor Exemplo',
+        score: '60',
+        level: 'suspect',
+        reasons: JSON.stringify(['rate_1m:3/1']),
+        mode: '1',
+        blockEligible: '0',
+        excluded: '0',
         ...overrides,
     };
 }
@@ -127,6 +136,15 @@ test('recent events strip query strings and truncate User-Agent', async () => {
     assert.equal(event.status, 200);
     assert.equal(event.requestTime, 0.042);
     assert.equal(event.dynamic, true);
+    assert.equal(event.country, 'BR');
+    assert.equal(event.asn, 12345);
+    assert.equal(event.asnOrg, 'Provedor Exemplo');
+    assert.equal(event.score, 60);
+    assert.equal(event.level, 'suspect');
+    assert.deepEqual(event.reasons, ['rate_1m:3/1']);
+    assert.equal(event.mode, 1);
+    assert.equal(event.blockEligible, false);
+    assert.equal(event.excluded, false);
 });
 
 test('recent events validate filters, cursor and page size', async () => {

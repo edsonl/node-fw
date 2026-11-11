@@ -32,17 +32,22 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 ├── backups/                 # backups locais de vhosts (fora do Git)
 ├── prompts/
 │   └── CONTEXTO.md
+├── config/
+│   └── classification.example.json
 ├── src/
 │   ├── app.js
 │   ├── server.js
 │   ├── config/
 │   ├── collector/
+│   ├── classification/
+│   ├── enrichment/
 │   ├── routes/
 │   ├── panel/
 │   ├── storage/
 │   └── utils/
 ├── scripts/
-│   └── send-test-event.js
+│   ├── send-test-event.js
+│   └── update-maxmind.js
 ├── test/
 ├── package.json
 ├── package-lock.json
@@ -51,11 +56,13 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 └── .kilo/
 ```
 
-Estrutura futura: `config/` (configuração persistente), `data/geolite2/` (bancos MaxMind) e `panel/` (Vue/Quasar).
+Estrutura atual: `src/enrichment/` (MaxMind), `src/classification/` (regras/score/bots), `config/classification.example.json`, `data/geolite2/` (bancos, somente `.gitkeep` em dev) e `scripts/update-maxmind.js`. Estrutura futura: `panel/` (Vue/Quasar) e persistência/administração de regras da Fase 7.
+
+Produção: a raiz real do projeto é `/home/web/node-fw/`; ela **não foi acessada nesta tarefa**. Nenhuma implantação ou ativação foi feita.
 
 ## 4. Arquitetura e decisões
 
-Fluxo: Internet → firewall/Fail2Ban → Nginx → PHP-FPM e logs; Nginx envia Syslog UDP para `127.0.0.1:5514` → coletor Node.js → Redis → motor de classificação → painel e evento de bloqueio → Fail2Ban → iptables.
+Fluxo: Internet → firewall/Fail2Ban → Nginx → PHP-FPM e logs; Nginx envia Syslog UDP para `127.0.0.1:5514` → coletor Node.js → enriquecimento MaxMind → classificação local → fila/Redis → painel. A elegibilidade de bloqueio é apenas calculada; nenhum evento é enviado ao Fail2Ban nesta fase.
 
 Decisões já tomadas:
 
@@ -85,29 +92,35 @@ Decisões já tomadas:
 - Não expor Redis ou painel diretamente à internet.
 - Não confiar em `X-Forwarded-For` de origem não confiável.
 
-## 6. Estado atual (05/11/2026)
+## 6. Estado atual (10/11/2026)
 
 - Fase 1 concluída: documentação, inspeção MaxMind e `.gitignore` criados.
 - Fase 2 concluída: backend Fastify, configuração de ambiente, coletor Syslog UDP, parser/validação, rotas de saúde e testes.
 - Fase 3 concluída: cliente Redis resiliente, fila limitada, agregação em lote, janelas/TTL, rankings, stream de eventos, reputação e consultas agregadas. Suíte com 51 testes aprovados.
 - Fase 4 (piloto) ativa: `log_format security_json`, map de caminho sem query, snippet PHP e integração do vhost `casadoppia.site`. Validado em Nginx temporário e depois no Nginx real; 3 eventos gravados no DB 7. Soak de 24h pendente.
-- Fase 4A concluída: painel provisório em `/panel`, somente leitura e loopback, com filtros, paginação cursorizada do stream, indicadores de saúde e polling de 10s. Validado em Chrome headless e contra o Redis real; 60 testes automatizados aprovados. Não aprova a Fase 5.
+- Fase 4A concluída: painel provisório em `/panel`, somente leitura e loopback, com filtros, paginação cursorizada do stream, indicadores de saúde e polling de 10s. Validado em Chrome headless e contra o Redis real. Não aprova a Fase 5.
+- Fase 5 implementada em desenvolvimento: MaxMind Country/ASN com readers locais, cache/TTL, modo degradado, updater independente com lock/tar/MMDB/SHA-256/swap/.previous e painel com país/ASN. Nenhum banco ou credencial real foi usado; implantação não realizada.
+- Fase 6 implementada em desenvolvimento: regras globais/por site, score/níveis, tracker de janelas, bot verifier DNS, exceções, decay, modo 1/2/3, persistência de score/suspeitos no Redis e score no painel. Sem calibração real, sem bloqueio e sem implantação. Suíte com 99 testes aprovados.
 - Componentes implementados:
   - `src/server.js`: bootstrap, inicialização do coletor/Redis/pipeline e encerramento gracioso.
   - `src/app.js`: Fastify, logger com redaction, IDs de requisição, erros e 404.
   - `src/config/`: carregamento de `.env` e validação de configuração.
   - `src/collector/`: coletor UDP, parser syslog, parser/validação do evento.
   - `src/storage/`: cliente Redis, fila, plano de agregação, aggregator, consultas e chaves.
+  - `src/enrichment/`: readers MaxMind Country/ASN, cache, modo degradado e updater independente.
+  - `src/classification/`: regras, tracker de janelas, bot verifier, score, exceções e modos.
+  - `config/classification.example.json`: exemplo de configuração global e por site.
   - `src/routes/health.js`: `/api/health`, `/api/ready`, `/api/stats`, `/api/summary`.
   - `src/routes/panel.js`: `/panel` e `/api/events/recent`.
-  - `src/panel/`: HTML/CSS/JS do painel provisório 4A.
+  - `src/panel/`: HTML/CSS/JS do painel provisório 4A, com país/ASN, score/nível e saúde da classificação.
   - `src/utils/ip.js`: validação e classificação de escopo de IP.
   - `scripts/send-test-event.js`: simulação de evento.
+  - `scripts/update-maxmind.js`: atualização independente; não roda no startup.
   - `nginx/00-node-fw-log.conf`: `map` e `log_format` no contexto `http`.
   - `nginx/node-fw-php-log.conf`: snippet Syslog para locations PHP.
   - `docs/NGINX.md`: instruções de vhost, configuração central, validação, rollback e troubleshooting.
   - `docs/PAINEL-OBSERVACAO.md`: uso, campos, limites e procedimento do soak.
-- Ainda não implementados: MaxMind, classificação/score, painel administrativo completo (Fase 7), Fail2Ban e systemd.
+- Ainda não implementados: painel administrativo completo (Fase 7), Fail2Ban e systemd. MaxMind e classificação estão implementados em dev, mas sem bancos/credenciais reais, calibração e implantação; nenhum bloqueio é executado.
 - Endpoints locais: API `127.0.0.1:8088`, UDP `127.0.0.1:5514`, tag `nodefw`.
 - Redis: DB `7`, prefixo `nodfw:v1:`, janelas 1s/1m/5m/15m, stream `events` com 50.000 entradas. O DB 7 contém eventos de teste do piloto; testes isolados usaram DB 15.
 - Nginx: `/etc/nginx/nginx.conf` inclui diretamente `/home/edson/www/node-fw/nginx/00-node-fw-log.conf` antes de `sites-enabled`; a cópia antiga em `/home/edson/www/nginx/` foi removida. Piloto `/home/edson/www/nginx/casadoppia.conf` com log tradicional temporário + Syslog; backup em `backups/`. Reload de produção realizado em 05/11/2026 e testado com requisições reais.
@@ -120,24 +133,27 @@ Decisões já tomadas:
   - Fail2Ban não encontrado neste ambiente (`/etc/fail2ban` ausente, `fail2ban-client` indisponível). Confirmar no servidor de produção antes da Fase 8.
   - Vários sites possuem `access_log off;` e configurações Magento com reescritas/`@handler`.
 - MaxMind:
-  - Banco existente: `/home/edson/node-anti-span/geolite-data/GeoLite2-Country.mmdb`.
-  - Apenas Country; ASN e City ausentes.
-  - Variáveis identificadas: `GEOIP_DB_PATH`, `MAXMIND_EDITION_ID`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY`, `MAXMIND_REFRESH_MAX_AGE_DAYS`.
-  - Nenhum valor secreto copiado ou documentado.
-  - Nenhum banco copiado.
+  - Banco existente no projeto antigo: `/home/edson/node-anti-span/geolite-data/GeoLite2-Country.mmdb`.
+  - Apenas Country; ASN e City ausentes no projeto antigo.
+  - Implementação dev: `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` em `MAXMIND_DB_DIR` (dev `data/geolite2/`; produção `/var/lib/node-fw/geolite2/`).
+  - Variáveis: `MAXMIND_ENABLED`, `MAXMIND_DB_DIR`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY`, `MAXMIND_REFRESH_MAX_AGE_DAYS`, `MAXMIND_DOWNLOAD_TIMEOUT_MS`, `MAXMIND_DOWNLOAD_RETRIES`, `MAXMIND_RETRY_BACKOFF_MS`, `MAXMIND_CACHE_MAX_ENTRIES`, `MAXMIND_CACHE_TTL_MS`, `MAXMIND_LOCK_STALE_MS`.
+  - Updater: `npm run maxmind:update` (não roda no startup). Lock, tar/MMDB validados, SHA-256, swap atômico, `.previous`, manifesto sem segredos.
+  - Nenhum valor secreto copiado ou documentado; nenhum banco real copiado/baixado.
+  - Serviço inicia degradado sem os bancos; país/ASN nulos.
 
 ## 7. Próxima etapa
 
-Concluir a **Fase 4 — soak e expansão**:
+Concluir o **soak da Fase 4** e calibrar as Fases 5/6 em desenvolvimento:
 
 1. Manter o Node FW em execução em tmux/screen e o piloto `casadoppia.site` por 24 horas.
-2. Acompanhar o painel em `http://127.0.0.1:8088/panel`, `/api/stats`, `/api/summary`, stream `events`, invalid, fila e Redis.
+2. Acompanhar o painel em `http://127.0.0.1:8088/panel`, `/api/stats`, `/api/summary`, stream `events`, invalid, fila, Redis, score e níveis.
 3. Comparar contagens do log tradicional com os eventos aceitos.
-4. Remover o log tradicional temporário do piloto se não for desejado; manter o Syslog.
-5. Registrar os resultados do soak e só então avaliar a Fase 5.
-6. Expandir para outros sites um por vez, conforme `docs/NGINX.md`.
+4. Registrar os resultados do soak em `docs/SOAK-24H-PENDENTE.md`.
+5. Calibrar pesos/limites da classificação com dados reais em modo monitoramento.
+6. Em tarefa operacional separada, obter/copiar os bancos MaxMind reais, criar `.env` e ativar após a revisão.
+7. Não executar bloqueios nem iniciar a Fase 8 antes da revisão do soak e da decisão de produção.
 
-Não avançar para MaxMind, classificação ou Fail2Ban antes de concluir o soak e a validação do piloto. O painel 4A não aprova a Fase 5 por si só. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
+MaxMind e classificação estão implementados em dev, sem bancos/credenciais reais, calibração ou implantação. O jail `nginx-wishlist` e o Fail2Ban continuam intocados.
 
 ## 8. Documentos de referência
 
@@ -145,4 +161,6 @@ Não avançar para MaxMind, classificação ou Fail2Ban antes de concluir o soak
 - `docs/ARQUITETURA.md`: componentes, fluxo, Redis, Nginx, classificação, Fail2Ban e segurança.
 - `docs/MAXMIND.md`: inspeção, cópia segura, atualização independente e pendências.
 - `docs/NGINX.md`: configuração central, vhosts, validação, rollback e troubleshooting.
-- `docs/PAINEL-OBSERVACAO.md`: painel 4A, filtros, paginação, limites e procedimento do soak.
+- `docs/PAINEL-OBSERVACAO.md`: painel 4A, filtros, paginação, score, limites e procedimento do soak.
+- `docs/SOAK-24H-PENDENTE.md`: baseline, janela e comandos de reconciliação do soak.
+- `config/classification.example.json`: exemplo de regras globais e por site da Fase 6.

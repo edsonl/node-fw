@@ -6,10 +6,15 @@ node_modules/
 .env.*
 !.env.example
 
-# MaxMind databases and temporary downloads
+# MaxMind databases, updates, manifests and temporary files
+data/geolite2/*
+!data/geolite2/.gitkeep
 data/geolite2/*.mmdb
+data/geolite2/*.previous
+data/geolite2/*.next
 data/geolite2/*.tar.gz
 data/geolite2/*.tmp
+data/geolite2/.update.lock
 data/geolite2/manifest.json
 
 # Runtime output and local config backups

@@ -2,6 +2,10 @@ import { buildApp } from './app.js';
 import { createSyslogCollector } from './collector/syslog-collector.js';
 import { loadConfig, toSafeConfig } from './config/index.js';
 import { loadEnvFile } from './config/load-env.js';
+import { createBotVerifier } from './classification/bot-verifier.js';
+import { createClassifier } from './classification/classifier.js';
+import { DEFAULT_RULES, loadClassificationRules, normalizeRuleSet } from './classification/rules.js';
+import { createMaxMindEnricher } from './enrichment/maxmind.js';
 import { createEventAggregator } from './storage/aggregator.js';
 import { createEventQueue } from './storage/event-queue.js';
 import { createRedisQueries } from './storage/queries.js';
@@ -30,12 +34,16 @@ async function main() {
     let aggregator = null;
     let redisClient = null;
     let queries = null;
+    let maxmind = null;
+    let classifier = null;
 
     const app = buildApp({
         config,
         getCollectorStats: () => collector?.getStats() ?? null,
         getPipelineStats: () => aggregator?.getStats() ?? null,
         getRedisStats: () => redisClient?.getStats() ?? null,
+        getMaxMindStats: () => maxmind?.getStats() ?? null,
+        getClassificationStats: () => classifier?.getStats() ?? null,
         getSummary: (options) => queries.getSummary(options),
         getRecentEvents: (options) => queries.getRecentEvents(options),
     });
@@ -46,6 +54,58 @@ async function main() {
             envFileLoaded,
         },
         'node-fw starting'
+    );
+
+    maxmind = createMaxMindEnricher({
+        config: config.maxmind,
+        logger: app.log,
+    });
+
+    try {
+        await maxmind.start();
+    } catch (error) {
+        app.log.error({ err: error }, 'maxmind initialization failed; continuing degraded');
+    }
+
+    let loadedRules;
+    try {
+        loadedRules = await loadClassificationRules({
+            configPath: config.classification.configPath,
+            logger: app.log,
+        });
+    } catch (error) {
+        app.log.error({ err: error }, 'classification rules failed to load; using defaults');
+        loadedRules = {
+            rules: normalizeRuleSet(DEFAULT_RULES),
+            source: 'fallback',
+            error: 'load_failed',
+        };
+    }
+
+    const botVerifier = createBotVerifier({
+        ranges: loadedRules.rules.botVerification,
+        cacheTtlMs: loadedRules.rules.botVerification.cacheTtlMs,
+        maxEntries: loadedRules.rules.botVerification.maxEntries,
+        logger: app.log,
+    });
+
+    classifier = createClassifier({
+        rules: loadedRules.rules,
+        rulesSource: loadedRules.source,
+        rulesError: loadedRules.error ?? null,
+        botVerifier,
+        logger: app.log,
+    });
+
+    app.log.info(
+        {
+            source: loadedRules.source,
+            mode: loadedRules.rules.mode,
+            sites: Object.keys(loadedRules.rules.sites).length,
+        },
+        loadedRules.source === 'file'
+            ? 'classification rules loaded'
+            : 'classification defaults active'
     );
 
     redisClient = createRedisClient({
@@ -78,6 +138,8 @@ async function main() {
         userAgentMaxLength: config.event.userAgentMaxLength,
         logger: app.log,
         onEvent: (event) => {
+            maxmind.enrich(event);
+            classifier.classify(event);
             eventQueue.push(event);
             if (eventQueue.size() >= config.redis.batchSize) {
                 aggregator.flushSoon();
@@ -123,6 +185,8 @@ async function main() {
         let exitCode = 0;
         try {
             await collector.stop();
+            classifier.close();
+            await maxmind.close();
             await aggregator.stop();
             eventQueue.stop();
             await redisClient.close();
@@ -144,6 +208,11 @@ async function main() {
 
         process.once('SIGINT', () => void shutdown('SIGINT'));
         process.once('SIGTERM', () => void shutdown('SIGTERM'));
+        process.on('SIGHUP', () => {
+            void maxmind.reload()
+                .then((stats) => app.log.info({ maxmind: stats }, 'maxmind readers reloaded'))
+                .catch((error) => app.log.error({ err: error }, 'maxmind reload failed'));
+        });
 
         app.log.info(
             {
@@ -156,6 +225,8 @@ async function main() {
     } catch (error) {
         app.log.fatal({ err: error }, 'failed to start node-fw');
         await collector.stop().catch(() => {});
+        classifier.close();
+        await maxmind.close().catch(() => {});
         await aggregator.stop().catch(() => {});
         eventQueue.stop();
         await redisClient.close().catch(() => {});

@@ -10,6 +10,7 @@ export const WINDOWS = Object.freeze([
 export const UNIQUE_WINDOWS = WINDOWS.filter((window) => window.label !== '1s');
 const REPUTATION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const IP_SITES_TTL_SECONDS = 24 * 60 * 60;
+const SUSPECTS_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 function toDate(value) {
     const date = value instanceof Date ? value : new Date(value);
@@ -41,6 +42,15 @@ function addZset(zsets, key, member, amount, ttl) {
         zsets.set(key, entry);
     }
     entry.members.set(member, (entry.members.get(member) ?? 0) + amount);
+}
+
+function addScoredZset(scoredZsets, key, member, score, ttl) {
+    let entry = scoredZsets.get(key);
+    if (!entry) {
+        entry = { key, ttl, members: new Map() };
+        scoredZsets.set(key, entry);
+    }
+    entry.members.set(member, Math.max(entry.members.get(member) ?? -Infinity, score));
 }
 
 function addHash(hashes, key, field, amount, ttl) {
@@ -92,6 +102,12 @@ function streamFields(event) {
         'country', event.country ?? '',
         'asn', event.asn === undefined || event.asn === null ? '' : String(event.asn),
         'asnOrg', event.asnOrg ?? '',
+        'score', String(Number.isFinite(event.score) ? event.score : 0),
+        'level', event.level ?? 'normal',
+        'reasons', JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []),
+        'mode', String(event.mode ?? 1),
+        'blockEligible', event.blockEligible ? '1' : '0',
+        'excluded', event.excluded ? '1' : '0',
     ];
 }
 
@@ -106,6 +122,7 @@ export function buildAggregationPlan(events, options) {
     const keys = createKeyBuilder(prefix);
     const counters = new Map();
     const zsets = new Map();
+    const scoredZsets = new Map();
     const hashes = new Map();
     const hlls = new Map();
     const sets = new Map();
@@ -171,6 +188,10 @@ export function buildAggregationPlan(events, options) {
                 lastStatus: event.status,
                 lastMethod: event.method,
                 lastCountry: country,
+                score: Number.isFinite(event.score) ? event.score : 0,
+                level: event.level ?? 'normal',
+                reasons: JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []),
+                scoredAt: receivedAt,
                 ttl: REPUTATION_TTL_SECONDS,
             };
             reputations.set(reputationKey, reputation);
@@ -187,9 +208,23 @@ export function buildAggregationPlan(events, options) {
                 if (country) {
                     reputation.lastCountry = country;
                 }
+                reputation.score = Number.isFinite(event.score) ? event.score : 0;
+                reputation.level = event.level ?? 'normal';
+                reputation.reasons = JSON.stringify(Array.isArray(event.reasons) ? event.reasons : []);
+                reputation.scoredAt = receivedAt;
             }
         }
         reputation.count += 1;
+
+        if ((event.level === 'suspect' || event.level === 'critical') && !event.excluded) {
+            addScoredZset(
+                scoredZsets,
+                keys.suspects(),
+                ip,
+                Number.isFinite(event.score) ? event.score : 0,
+                SUSPECTS_TTL_SECONDS
+            );
+        }
 
         if (eventStreamEnabled) {
             streams.push({
@@ -207,6 +242,14 @@ export function buildAggregationPlan(events, options) {
                 key: entry.key,
                 member,
                 amount,
+                ttl: entry.ttl,
+            }))
+        )),
+        scoredZsets: [...scoredZsets.values()].flatMap((entry) => (
+            [...entry.members.entries()].map(([member, score]) => ({
+                key: entry.key,
+                member,
+                score,
                 ttl: entry.ttl,
             }))
         )),
@@ -234,6 +277,7 @@ export function buildAggregationPlan(events, options) {
             events: events.length,
             counters: counters.size,
             zsets: zsets.size,
+            scoredZsets: scoredZsets.size,
             hashes: hashes.size,
             hlls: hlls.size,
             sets: sets.size,

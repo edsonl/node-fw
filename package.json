@@ -1,6 +1,6 @@
 {
   "name": "node-fw",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Security monitoring and classification for Nginx access logs",
@@ -12,10 +12,13 @@
     "dev": "node --watch src/server.js",
     "test": "node --test",
     "test:watch": "node --test --watch",
-    "send:test-event": "node scripts/send-test-event.js"
+    "send:test-event": "node scripts/send-test-event.js",
+    "maxmind:update": "node scripts/update-maxmind.js"
   },
   "dependencies": {
     "fastify": "^5.12.8",
-    "redis": "^6.3.1"
+    "maxmind": "^5.0.8",
+    "redis": "^6.3.1",
+    "tar": "^7.5.22"
   }
 }

@@ -30,6 +30,10 @@
         queueDetail: byId('queue-detail'),
         metricRedis: byId('metric-redis'),
         redisDetail: byId('redis-detail'),
+        metricMaxmind: byId('metric-maxmind'),
+        maxmindDetail: byId('maxmind-detail'),
+        metricClassification: byId('metric-classification'),
+        classificationDetail: byId('classification-detail'),
         metricWrites: byId('metric-writes'),
         pipelineDetail: byId('pipeline-detail'),
         eventCount: byId('event-count'),
@@ -104,6 +108,19 @@
         return seconds < 1
             ? `${Math.round(seconds * 1000)} ms`
             : `${seconds.toFixed(3)} s`;
+    }
+
+    function levelClass(level) {
+        switch (level) {
+            case 'observation':
+                return 'level-observation';
+            case 'suspect':
+                return 'level-suspect';
+            case 'critical':
+                return 'level-critical';
+            default:
+                return 'level-normal';
+        }
     }
 
     function statusClass(status) {
@@ -208,6 +225,21 @@
             ipCell.textContent = event.ip || '—';
             row.append(ipCell);
 
+            const originCell = document.createElement('td');
+            originCell.className = 'origin';
+            const origin = [];
+            if (event.country) {
+                origin.push(event.country);
+            }
+            if (Number.isInteger(event.asn)) {
+                origin.push(`AS${event.asn}`);
+            }
+            originCell.textContent = origin.length > 0 ? origin.join(' · ') : '—';
+            if (event.asnOrg) {
+                originCell.title = event.asnOrg;
+            }
+            row.append(originCell);
+
             const methodCell = document.createElement('td');
             methodCell.className = 'method';
             methodCell.textContent = event.method || '—';
@@ -227,6 +259,19 @@
             statusBadge.textContent = Number.isInteger(event.status) ? String(event.status) : '—';
             statusCell.append(statusBadge);
             row.append(statusCell);
+
+            const scoreCell = document.createElement('td');
+            scoreCell.className = 'score';
+            const scoreBadge = document.createElement('span');
+            scoreBadge.className = `score-badge ${levelClass(event.level)}`;
+            scoreBadge.textContent = Number.isInteger(event.score)
+                ? `${event.score} ${event.level ?? ''}`.trim()
+                : '—';
+            if (Array.isArray(event.reasons) && event.reasons.length > 0) {
+                scoreBadge.title = event.reasons.join(' · ');
+            }
+            scoreCell.append(scoreBadge);
+            row.append(scoreCell);
 
             const durationCell = document.createElement('td');
             durationCell.className = 'duration';
@@ -297,6 +342,8 @@
         const collector = stats?.collector ?? null;
         const pipeline = stats?.pipeline ?? null;
         const redis = stats?.redis ?? null;
+        const maxmind = stats?.maxmind ?? null;
+        const classification = stats?.classification ?? null;
 
         setText(els.metricInvalid, collector ? formatNumber(collector.invalid) : '—');
         const reasons = collector?.invalidByReason && typeof collector.invalidByReason === 'object'
@@ -321,6 +368,38 @@
         els.redisDetail.textContent = redis
             ? `DB ${redis.database ?? '—'} · reconexões ${formatNumber(redis.reconnectAttempts)}`
             : 'indisponível';
+
+        if (!maxmind) {
+            setText(els.metricMaxmind, '—');
+            els.metricMaxmind.className = '';
+            els.maxmindDetail.textContent = 'indisponível';
+        } else if (!maxmind.enabled) {
+            setText(els.metricMaxmind, 'Desativado');
+            els.metricMaxmind.className = '';
+            els.maxmindDetail.textContent = 'MAXMIND_ENABLED=false';
+        } else if (maxmind.countryReady && maxmind.asnReady) {
+            setText(els.metricMaxmind, 'Pronto');
+            els.metricMaxmind.className = 'metric-ok';
+            els.maxmindDetail.textContent = `cache ${formatNumber(maxmind.cacheEntries)}/${formatNumber(maxmind.cacheMaxEntries)}`;
+        } else {
+            setText(els.metricMaxmind, 'Degradado');
+            els.metricMaxmind.className = 'metric-warn';
+            els.maxmindDetail.textContent = `país ${maxmind.countryReady ? 'ok' : '—'} · ASN ${maxmind.asnReady ? 'ok' : '—'}`;
+        }
+
+        if (!classification) {
+            setText(els.metricClassification, '—');
+            els.metricClassification.className = '';
+            els.classificationDetail.textContent = 'indisponível';
+        } else {
+            const levels = classification.levelCounts ?? {};
+            const mode = classification.modeCounts ?? {};
+            const dominantMode = Object.entries(mode)
+                .sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ?? '1';
+            setText(els.metricClassification, `Modo ${dominantMode}`);
+            els.metricClassification.className = 'metric-ok';
+            els.classificationDetail.textContent = `suspeitos ${formatNumber(levels.suspect)} · críticos ${formatNumber(levels.critical)} · IPs ${formatNumber(classification.trackedIps)}`;
+        }
 
         setText(els.metricWrites, pipeline ? formatNumber(pipeline.writtenEvents) : '—');
         els.pipelineDetail.textContent = pipeline
@@ -364,6 +443,8 @@
         const collector = stats.collector ?? null;
         const pipeline = stats.pipeline ?? null;
         const redis = stats.redis ?? null;
+        const maxmind = stats.maxmind ?? null;
+        const classification = stats.classification ?? null;
         const items = [];
 
         items.push(addHealthItem('Coletor', [
@@ -386,6 +467,34 @@
             ['database', redis?.database ?? '—'],
             ['reconexões', redis ? formatNumber(redis.reconnectAttempts) : '—'],
             ['último erro', redis?.lastError?.message ?? '—'],
+        ]));
+
+        items.push(addHealthItem('MaxMind', [
+            ['habilitado', maxmind ? (maxmind.enabled ? 'sim' : 'não') : '—'],
+            ['país', maxmind ? (maxmind.countryReady ? 'pronto' : 'indisponível') : '—'],
+            ['ASN', maxmind ? (maxmind.asnReady ? 'pronto' : 'indisponível') : '—'],
+            ['cache', maxmind ? `${formatNumber(maxmind.cacheEntries)}/${formatNumber(maxmind.cacheMaxEntries)}` : '—'],
+            ['lookups', maxmind ? formatNumber(maxmind.lookups) : '—'],
+            ['cache hits', maxmind ? formatNumber(maxmind.cacheHits) : '—'],
+            ['ignorados privados', maxmind ? formatNumber(maxmind.privateSkips) : '—'],
+            ['erros de leitura', maxmind ? formatNumber(maxmind.lookupErrors) : '—'],
+            ['último erro', maxmind?.lastError ? `${maxmind.lastError.edition}: ${maxmind.lastError.code}` : '—'],
+        ]));
+
+        const modes = classification?.modeCounts
+            ? Object.entries(classification.modeCounts).map(([mode, count]) => `modo ${mode}: ${formatNumber(count)}`).join(' · ')
+            : '—';
+        items.push(addHealthItem('Classificação', [
+            ['decisões', classification ? formatNumber(classification.decisions) : '—'],
+            ['normal', classification ? formatNumber(classification.levelCounts?.normal) : '—'],
+            ['observação', classification ? formatNumber(classification.levelCounts?.observation) : '—'],
+            ['suspeitos', classification ? formatNumber(classification.levelCounts?.suspect) : '—'],
+            ['críticos', classification ? formatNumber(classification.levelCounts?.critical) : '—'],
+            ['IPs rastreados', classification ? formatNumber(classification.trackedIps) : '—'],
+            ['exceções', classification ? formatNumber(classification.hardExceptions) : '—'],
+            ['erros', classification ? formatNumber(classification.errors) : '—'],
+            ['modos', modes],
+            ['regras', classification?.rulesSource ?? '—'],
         ]));
 
         items.push(addHealthItem('Pipeline', [

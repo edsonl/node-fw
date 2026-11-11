@@ -3,20 +3,20 @@
 | Campo | Valor |
 |---|---|
 | Documento | Guia do painel provisório de observação |
-| Versão | 0.5.0 |
-| Data | 06/11/2026 |
-| Status | Implementado e validado; soak de 24h da Fase 4 ainda pendente |
+| Versão | 0.7.0 |
+| Data | 10/11/2026 |
+| Status | Implementado e validado; MaxMind e classificação em desenvolvimento; soak de 24h da Fase 4 ainda pendente |
 | Natureza | Somente leitura, loopback, sem autenticação nesta etapa |
 
 ## 1. Objetivo
 
-Permitir o acompanhamento visual dos acessos reais do piloto `casadoppia.site` durante o soak da Fase 4, usando o stream Redis já existente e as APIs de saúde/agregação.
+Permitir o acompanhamento visual dos acessos reais do piloto `casadoppia.site` durante o soak da Fase 4, usando o stream Redis já existente e as APIs de saúde/agregação. Com as Fases 5 e 6 em desenvolvimento, a tela também mostra país/ASN quando os bancos GeoLite2 estão carregados, além de score, nível e motivos da classificação local.
 
 Este painel é um incremento operacional provisório. O painel administrativo completo (autenticação, suspeitos, regras, administração e WebSocket) continua planejado para a Fase 7.
 
 ## 2. Como iniciar
 
-Pré-requisitos: Redis local ativo, Nginx do piloto configurado e o projeto com dependências instaladas.
+Pré-requisitos: Redis local ativo, Nginx do piloto configurado e o projeto com dependências instaladas. MaxMind é opcional: sem os bancos, o painel inicia em modo degradado e mostra `—` para país/ASN.
 
 ```bash
 cd /home/edson/www/node-fw
@@ -32,7 +32,27 @@ Abra no navegador local:
 http://127.0.0.1:8088/panel
 ```
 
-A API e o painel escutam em loopback (`127.0.0.1:8088`). Não exponha essa porta publicamente. Se o navegador estiver em outra máquina, use encaminhamento de porta SSH/VS Code (`8088` local para `127.0.0.1:8088` no servidor); autenticação e TLS para acesso remoto ficam para uma etapa posterior.
+A API e o painel escutam em loopback (`127.0.0.1:8088`). Não exponha essa porta publicamente.
+
+### Acesso pelo navegador do seu computador via túnel SSH
+
+Execute o comando **no terminal do seu computador**, não no shell do servidor. Use a porta local `18088` para não confundir/colidir com outro Node FW que possa estar rodando localmente na porta `8088`:
+
+```bash
+ssh -N -L 18088:127.0.0.1:8088 usuario@servidor
+```
+
+Substitua `usuario@servidor` pelo usuário e endereço SSH reais. Se o SSH usa uma porta diferente da padrão, acrescente, por exemplo, `-p 2222`. Mantenha esse terminal aberto enquanto usa o painel e abra:
+
+```text
+http://127.0.0.1:18088/panel
+```
+
+O lado esquerdo (`18088`) é a porta no seu computador; o lado direito (`127.0.0.1:8088`) é a porta de loopback no servidor. Para encerrar o túnel, pressione `Ctrl+C` nesse terminal; isso não encerra o Node FW no servidor. Se outro serviço já usar `18088`, escolha outra porta local livre, mantendo `127.0.0.1:8088` como destino remoto.
+
+Use o conteúdo da tela para confirmar que chegou ao servidor: o domínio deve ser o do piloto online (por exemplo, `casadoppia.com.br` ou `www.casadoppia.com.br`) e os IPs devem corresponder aos acessos reais. Se aparecerem eventos de teste como `casadoppia.site`, IP `127.0.0.1` e User-Agent `curl`, provavelmente foi aberto o Node FW local, e não o túnel para o servidor.
+
+Autenticação e TLS para acesso remoto ficam para uma etapa posterior; por isso, mantenha o encaminhamento SSH e não exponha a porta do painel publicamente.
 
 Para encerrar o processo iniciado no tmux, use `Ctrl+C` dentro da sessão. Ainda não há serviço systemd; se o servidor reiniciar, o processo não volta automaticamente.
 
@@ -47,6 +67,8 @@ Para encerrar o processo iniciado no tmux, use `Ctrl+C` dentro da sessão. Ainda
 - Profundidade da fila e total descartado.
 - Prontidão do Redis e reconexões.
 - Lotes, eventos gravados, falhas de escrita e descartes do pipeline.
+- MaxMind: habilitado, país/ASN prontos, cache, lookups, hits e erros.
+- Classificação: modo, decisões, níveis, IPs rastreados, exceções e erros.
 - Saúde do coletor: recebidos, aceitos, inválidos e erros de callback.
 
 Se um indicador não existir na resposta, a tela mostra `—` ou `indisponível`; nenhum valor é inventado.
@@ -60,9 +82,11 @@ Colunas exibidas:
 | Horário | `timestamp`/`receivedAt` | Exibido em horário local |
 | Site | `site` | Domínio do evento |
 | IP | `ip` | IP do cliente |
+| Origem | `country`, `asn` | País e ASN quando o MaxMind está carregado; `—` em modo degradado |
 | Método | `method` | GET, POST etc. |
 | Caminho | `path` | Sem query string |
 | Status | `status` | Com cor por faixa 2xx/3xx/4xx/5xx |
+| Score | `score`, `level`, `reasons` | Score 0–100, nível e motivos no título |
 | Tempo | `requestTime` | Milissegundos ou segundos |
 | Dinâmica | `dynamic` | Indica encaminhamento a upstream PHP |
 | User-Agent | `userAgent` | Truncado em 160 caracteres no servidor |
@@ -101,8 +125,10 @@ A URI final (`finalUri`) não é exibida como coluna; quando difere do caminho, 
 
 ## 5. Limitações desta versão
 
-- Sem MaxMind: país, ASN, score e nível de risco não existem e não são simulados.
-- Sem classificação, suspeitos, exceções ou bloqueios.
+- MaxMind pode estar ausente/corrompido: país e ASN aparecem como `—`; nenhum valor é inventado.
+- Score, nível e motivos são calculados localmente em modo monitoramento; não há calibração real nem bloqueio nesta fase.
+- O tracker de janelas é em memória e reinicia com o processo; a reputação/score persistidos no Redis permanecem, mas as janelas são reconstruídas.
+- O painel administrativo de suspeitos, regras e exceções continua na Fase 7; a tela apenas exibe os campos do evento.
 - Sem autenticação, multiusuário ou auditoria administrativa.
 - Sem WebSocket; atualização por polling de 10 segundos.
 - Stream limitado por `MAXLEN ~` (50.000 entradas por padrão).
@@ -138,26 +164,33 @@ redis-cli -n 7 info memory | grep -E 'used_memory_human|used_memory_peak_human'
 wc -l logs/casadoppia-access.log
 ```
 
-## 7. Relação com a Fase 5
+## 7. Relação com as Fases 5 e 6
 
-A conclusão deste painel **não aprova** a Fase 5 (MaxMind). Antes de iniciar a Fase 5, o soak de 24 horas e os critérios restantes da Fase 4 precisam ser revisados e documentados:
+MaxMind e classificação estão implementados em desenvolvimento, mas **não implantados**. Bancos/credenciais reais, calibração dos scores e a decisão de produção continuam pendentes da revisão do soak da Fase 4. O painel mostra país/ASN quando os bancos estão carregados, score/nível em modo monitoramento e `—` quando o dado não existe. O estado atual e os comandos de coleta estão em `docs/SOAK-24H-PENDENTE.md`.
 
 - eventos aceitos sem inválidos relevantes;
 - contagens compatíveis com o log tradicional;
 - nenhuma perda/descarte relevante;
 - Redis e fila saudáveis;
 - Nginx sem erros;
+- MaxMind com readers prontos ou modo degradado explicitamente registrado;
+- classificação em modo 1, com score/nível coerentes e sem erros;
 - limitações conhecidas registradas.
 
 ## 8. Validação realizada
 
-- 60 testes automatizados aprovados.
+- 99 testes automatizados aprovados.
 - Teste real de paginação no stream Redis DB 7.
 - Filtros por site, IP e status validados.
 - Consulta de cursor sem duplicidade.
 - Caminho sem query string e User-Agent truncado.
 - Renderização validada em Chrome headless, com eventos reais e indicadores.
+- Origem (país/ASN) exibida quando há dados; `—` em modo degradado.
+- MaxMind degradado validado sem invenção de país/ASN e com aviso no painel.
+- Score/nível validados no painel com evento real (`critical_path` + UA vazio).
 - Interface e assets com headers restritivos; bind mantido em loopback.
+
+Atribuição: o painel inclui o texto “Inclui dados GeoLite2 criados pela MaxMind, disponíveis em https://www.maxmind.com.”
 
 ## 9. Arquivos principais
 
@@ -165,6 +198,11 @@ A conclusão deste painel **não aprova** a Fase 5 (MaxMind). Antes de iniciar a
 - `src/panel/style.css`: layout responsivo.
 - `src/panel/app.js`: atualização, filtros, paginação e renderização.
 - `src/routes/panel.js`: serve a UI e o endpoint `/api/events/recent`.
-- `src/storage/queries.js`: consulta cursorizada do stream.
+- `src/storage/queries.js`: consulta cursorizada do stream, incluindo país/ASN e score.
+- `src/enrichment/maxmind.js`: readers, cache e modo degradado.
+- `src/classification/`: regras, tracker, verificador de bots e motor de score.
+- `config/classification.example.json`: exemplo de regras globais e por site.
 - `test/event-query.test.js`: paginação, filtros e validação.
 - `test/panel.test.js`: assets, headers e respostas de erro.
+- `test/maxmind-enricher.test.js` e `test/maxmind-updater.test.js`: mocks/fixtures de MaxMind.
+- `test/classifier.test.js`, `test/ip-tracker.test.js`, `test/bot-verifier.test.js` e `test/classification-rules.test.js`: classificação, janelas, bots, exceções e regras.

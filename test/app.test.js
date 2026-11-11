@@ -13,6 +13,23 @@ test('health, readiness and stats routes reflect collector and Redis state', asy
     };
     const redisStats = { ready: true, database: 7 };
     const pipelineStats = { batches: 2, writtenEvents: 40 };
+    const maxmindStats = {
+        enabled: true,
+        countryReady: true,
+        asnReady: false,
+        degraded: true,
+        cacheEntries: 1,
+        cacheMaxEntries: 10,
+    };
+    const classificationStats = {
+        decisions: 4,
+        levelCounts: { normal: 3, observation: 0, suspect: 1, critical: 0 },
+        modeCounts: { 1: 4, 2: 0, 3: 0 },
+        trackedIps: 2,
+        hardExceptions: 0,
+        errors: 0,
+        rulesSource: 'default',
+    };
 
     const app = buildApp({
         config,
@@ -20,6 +37,8 @@ test('health, readiness and stats routes reflect collector and Redis state', asy
         getCollectorStats: () => collectorStats,
         getPipelineStats: () => pipelineStats,
         getRedisStats: () => redisStats,
+        getMaxMindStats: () => maxmindStats,
+        getClassificationStats: () => classificationStats,
     });
     t.after(() => app.close());
 
@@ -28,15 +47,19 @@ test('health, readiness and stats routes reflect collector and Redis state', asy
     assert.equal(health.headers['cache-control'], 'no-store');
     assert.equal(health.json().status, 'ok');
     assert.equal(health.json().service, 'node-fw');
-    assert.equal(health.json().version, '0.5.0');
+    assert.equal(health.json().version, '0.7.0');
     assert.equal(health.json().collector.started, true);
     assert.equal(health.json().redis.ready, true);
+    assert.equal(health.json().maxmind.degraded, true);
+    assert.equal(health.json().classification.decisions, 4);
 
     const ready = await app.inject({ method: 'GET', url: '/api/ready' });
     assert.equal(ready.statusCode, 200);
     assert.equal(ready.json().status, 'ready');
     assert.equal(ready.json().checks.collector, 'ok');
     assert.equal(ready.json().checks.redis, 'ok');
+    assert.equal(ready.json().checks.maxmind, 'degraded');
+    assert.equal(ready.json().checks.classification, 'ok');
 
     const stats = await app.inject({ method: 'GET', url: '/api/stats' });
     assert.equal(stats.statusCode, 200);
@@ -44,6 +67,9 @@ test('health, readiness and stats routes reflect collector and Redis state', asy
     assert.equal(stats.json().collector.address.port, 5514);
     assert.equal(stats.json().pipeline.batches, 2);
     assert.equal(stats.json().redis.database, 7);
+    assert.equal(stats.json().maxmind.countryReady, true);
+    assert.equal(stats.json().classification.decisions, 4);
+    assert.equal(stats.json().classification.levelCounts.suspect, 1);
 
     redisStats.ready = false;
     const redisDown = await app.inject({ method: 'GET', url: '/api/ready' });

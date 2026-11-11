@@ -20,7 +20,7 @@
 
     <main>
         <section class="notice" aria-label="Limitações desta fase">
-            País, ASN, score e nível de risco ainda não estão disponíveis. O enriquecimento MaxMind entra na Fase 5 e a classificação na Fase 6.
+            País e ASN aparecem quando os bancos GeoLite2 estão carregados. Score e nível são calculados localmente em modo monitoramento; nenhum bloqueio é aplicado nesta fase.
         </section>
 
         <section id="error-banner" class="banner hidden" role="alert"></section>
@@ -64,6 +64,16 @@
                 <span class="card-label">Redis</span>
                 <strong id="metric-redis">—</strong>
                 <small id="redis-detail">—</small>
+            </article>
+            <article class="card">
+                <span class="card-label">MaxMind</span>
+                <strong id="metric-maxmind">—</strong>
+                <small id="maxmind-detail">—</small>
+            </article>
+            <article class="card">
+                <span class="card-label">Classificação</span>
+                <strong id="metric-classification">—</strong>
+                <small id="classification-detail">—</small>
             </article>
             <article class="card">
                 <span class="card-label">Pipeline</span>
@@ -117,9 +127,11 @@
                             <th>Horário</th>
                             <th>Site</th>
                             <th>IP</th>
+                            <th>Origem</th>
                             <th>Método</th>
                             <th>Caminho</th>
                             <th>Status</th>
+                            <th>Score</th>
                             <th>Tempo</th>
                             <th>Dinâmica</th>
                             <th>User-Agent</th>
@@ -154,7 +166,8 @@
     </main>
 
     <footer>
-        Node FW · Fase 4A · sem ações de escrita ou bloqueio
+        Node FW · observação · sem ações de escrita ou bloqueio<br>
+        Inclui dados GeoLite2 criados pela MaxMind, disponíveis em https://www.maxmind.com.
     </footer>
 
     <noscript>Este painel precisa de JavaScript para atualizar os dados.</noscript>

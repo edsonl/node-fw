@@ -13,6 +13,7 @@ const MAX_EVENT_USER_AGENT_LENGTH = 160;
 const MAX_EVENT_PATH_LENGTH = 2048;
 const STREAM_ID_PATTERN = /^\d+-\d+$/;
 const CONTROL_CHARS_PATTERN = /[\u0000-\u001F\u007F]/g;
+const LEVELS = new Set(['normal', 'observation', 'suspect', 'critical']);
 
 function normalizeSiteFilter(value) {
     if (value === undefined || value === null || value === '') {
@@ -185,11 +186,33 @@ function toOptionalNumber(value, min, max) {
     return Number.isFinite(number) && number >= min && number <= max ? number : null;
 }
 
+function parseReasons(value) {
+    if (typeof value !== 'string' || value.length > 4096) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed
+            .slice(0, 50)
+            .filter((reason) => typeof reason === 'string')
+            .map((reason) => cleanText(reason, 160))
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
 function eventFromStreamEntry(entry) {
     const message = entry.message instanceof Map
         ? Object.fromEntries(entry.message)
         : (entry.message ?? {});
     const rawUserAgent = message.userAgent;
+    const rawCountry = cleanText(message.country, 2);
+    const level = cleanText(message.level, 16).toLowerCase();
 
     return {
         id: String(entry.id),
@@ -206,6 +229,15 @@ function eventFromStreamEntry(entry) {
         userAgent: cleanText(rawUserAgent, MAX_EVENT_USER_AGENT_LENGTH),
         userAgentTruncated: typeof rawUserAgent === 'string'
             && rawUserAgent.length > MAX_EVENT_USER_AGENT_LENGTH,
+        country: /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : null,
+        asn: toOptionalInteger(message.asn, 1, 4_294_967_295),
+        asnOrg: cleanText(message.asnOrg, 128) || null,
+        score: toOptionalInteger(message.score, 0, 100),
+        level: LEVELS.has(level) ? level : null,
+        reasons: parseReasons(message.reasons),
+        mode: toOptionalInteger(message.mode, 1, 3),
+        blockEligible: message.blockEligible === '1',
+        excluded: message.excluded === '1',
     };
 }
 

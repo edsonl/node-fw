@@ -16,6 +16,10 @@ test('panel serves HTML, CSS and JS with restrictive headers', async (t) => {
     assert.equal(html.headers['cache-control'], 'no-store');
     assert.match(html.headers['content-security-policy'], /default-src 'self'/);
     assert.match(html.body, /Observação/);
+    assert.match(html.body, /MaxMind/);
+    assert.match(html.body, /GeoLite2/);
+    assert.match(html.body, /Classificação/);
+    assert.match(html.body, /Score/);
 
     const css = await app.inject({ method: 'GET', url: '/panel/style.css' });
     assert.equal(css.statusCode, 200);
@@ -45,6 +49,14 @@ test('recent events endpoint validates and returns data', async (t) => {
                     path: '/',
                     status: 200,
                     dynamic: true,
+                    country: 'BR',
+                    asn: 12345,
+                    asnOrg: 'Provedor Exemplo',
+                    score: 60,
+                    level: 'suspect',
+                    reasons: ['rate_1m:3/1'],
+                    mode: 1,
+                    blockEligible: false,
                 }],
                 page: {
                     limit: 10,
@@ -67,6 +79,10 @@ test('recent events endpoint validates and returns data', async (t) => {
     assert.equal(response.headers['cache-control'], 'no-store');
     assert.equal(response.json().status, 'ok');
     assert.equal(response.json().events[0].path, '/');
+    assert.equal(response.json().events[0].country, 'BR');
+    assert.equal(response.json().events[0].asn, 12345);
+    assert.equal(response.json().events[0].score, 60);
+    assert.equal(response.json().events[0].level, 'suspect');
     assert.equal(calls[0].site, 'casadoppia.site');
     assert.equal(calls[0].limit, '10');
 });

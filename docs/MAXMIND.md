@@ -4,9 +4,10 @@
 |---|---|
 | Projeto de destino | `/home/edson/www/node-fw/` |
 | Projeto inspecionado | `/home/edson/node-anti-span/` |
+| Versão | 0.7.0 |
 | Tipo de inspeção | Somente leitura |
 | Data da inspeção | 05/11/2026 |
-| Status | Inspeção concluída; nenhum banco ou credencial copiado |
+| Status | Fase 5 implementada em desenvolvimento; nenhum banco/credencial real copiado ou usado; produção não implantada |
 | Documento | Estratégia de dados, atualização e segurança |
 
 ## 1. Resumo
@@ -191,21 +192,27 @@ Regras:
 - Não copiar funções, classes ou arquivos do projeto antigo.
 - O código do updater será novo, com testes próprios.
 
-### 8.2 Variáveis propostas
+### 8.2 Variáveis implementadas
 
 ```dotenv
+MAXMIND_ENABLED=true
+MAXMIND_DB_DIR=./data/geolite2
 MAXMIND_ACCOUNT_ID=
 MAXMIND_LICENSE_KEY=
-MAXMIND_EDITION_IDS=GeoLite2-Country,GeoLite2-ASN
-MAXMIND_DB_DIR=./data/geolite2
 MAXMIND_REFRESH_MAX_AGE_DAYS=3
 MAXMIND_DOWNLOAD_TIMEOUT_MS=120000
+MAXMIND_DOWNLOAD_RETRIES=3
+MAXMIND_RETRY_BACKOFF_MS=500
+MAXMIND_CACHE_MAX_ENTRIES=10000
+MAXMIND_CACHE_TTL_MS=300000
+MAXMIND_LOCK_STALE_MS=900000
 ```
 
-- `MAXMIND_ACCOUNT_ID` e `MAXMIND_LICENSE_KEY` são secretos.
-- `MAXMIND_EDITION_IDS` permite atualizar Country e ASN no mesmo job.
-- O diretório de produção deve ser configurado explicitamente.
-- O timeout evita conexões penduradas.
+- `MAXMIND_ACCOUNT_ID` e `MAXMIND_LICENSE_KEY` são secretos e não aparecem no `toSafeConfig`.
+- Country e ASN são atualizados pelo mesmo comando, com resultados independentes.
+- O diretório de produção deve ser configurado explicitamente para `/var/lib/node-fw/geolite2/`.
+- Timeout, retries e backoff evitam conexões penduradas e limitam novas tentativas.
+- O lock é um arquivo `.update.lock` com remoção de lock obsoleto.
 
 ### 8.3 Leitor local
 
@@ -296,21 +303,23 @@ Antes da produção, revisar os termos aplicáveis à conta e ao uso interno dos
 
 ## 12. Checklist da Fase 5
 
+- [x] Implementar leitor local e cache.
+- [x] Implementar updater independente com lock e troca atômica.
+- [x] Implementar validação antes do swap e retenção de `.previous`.
+- [x] Testar IPv4, IPv6, IP privado e IP inválido.
+- [x] Testar falhas de download, tar e banco corrompido.
+- [x] Confirmar ausência de credenciais em logs e manifesto.
+- [x] Adicionar atribuição MaxMind no painel.
+- [x] Atualizar `docs/IMPLEMENTACAO.md`.
 - [ ] Confirmar titularidade de Country e ASN na conta MaxMind.
 - [ ] Validar metadata/build epoch do banco Country existente.
-- [ ] Criar diretório independente com permissões restritas.
+- [ ] Validar precisão com IPs conhecidos usando os bancos reais.
+- [ ] Criar diretório de produção com permissões restritas.
 - [ ] Copiar Country sem link simbólico/hardlink.
 - [ ] Obter ASN de forma independente.
-- [ ] Calcular e comparar SHA-256.
-- [ ] Criar `.env` novo com `0600`.
-- [ ] Implementar leitor local e cache.
-- [ ] Implementar updater independente com lock e troca atômica.
-- [ ] Implementar validação antes do swap e rollback para `.previous`.
-- [ ] Testar IPv4, IPv6, IP privado e IP inválido.
-- [ ] Testar falhas de download, tar e banco corrompido.
-- [ ] Confirmar ausência de credenciais em logs.
-- [ ] Adicionar atribuição MaxMind no painel.
-- [ ] Atualizar `docs/IMPLEMENTACAO.md`.
+- [ ] Calcular e comparar SHA-256 na operação real.
+- [ ] Criar `.env` de produção com `0600`.
+- [ ] Executar atualização real e implantar após revisão do soak.
 
 ## 13. Confirmação de conformidade
 
@@ -322,3 +331,84 @@ Nesta execução:
 - Nenhum link simbólico foi criado.
 - Nenhum código do projeto antigo foi importado.
 - A inspeção foi exclusivamente de leitura.
+
+## 14. Implementação da Fase 5 em desenvolvimento
+
+### 14.1 Módulos
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/enrichment/maxmind.js` | Readers Country/ASN, consulta local, cache, modo degradado e reload |
+| `src/enrichment/maxmind-editions.js` | Nomes e arquivos das edições suportadas |
+| `src/enrichment/maxmind-updater.js` | Download, tar, validação, lock, SHA-256, swap, `.previous`, manifesto e rollback |
+| `scripts/update-maxmind.js` | Comando operacional independente |
+
+O serviço abre os bancos uma vez no startup e consulta em memória. O enriquecimento ocorre antes de `eventQueue.push`, portanto antes da gravação no Redis. Não há consulta de rede no caminho de coleta.
+
+### 14.2 Configuração
+
+```dotenv
+MAXMIND_ENABLED=true
+MAXMIND_DB_DIR=./data/geolite2
+MAXMIND_ACCOUNT_ID=
+MAXMIND_LICENSE_KEY=
+MAXMIND_REFRESH_MAX_AGE_DAYS=3
+MAXMIND_DOWNLOAD_TIMEOUT_MS=120000
+MAXMIND_DOWNLOAD_RETRIES=3
+MAXMIND_RETRY_BACKOFF_MS=500
+MAXMIND_CACHE_MAX_ENTRIES=10000
+MAXMIND_CACHE_TTL_MS=300000
+MAXMIND_LOCK_STALE_MS=900000
+```
+
+Os nomes reais dos arquivos são `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` dentro de `MAXMIND_DB_DIR`. Em produção, usar `/var/lib/node-fw/geolite2/`; esse diretório não foi criado nesta tarefa. A raiz real do projeto no servidor é `/home/web/node-fw/`, que também não foi acessada.
+
+### 14.3 Modo degradado
+
+- Banco ausente/corrompido: o serviço inicia, registra aviso seguro e retorna `country`/`asn` nulos.
+- IP privado, reservado, documentação, loopback ou inválido: não consulta e retorna nulos.
+- IP público sem resultado: retorna nulos e cacheia o resultado.
+- `MAXMIND_ENABLED=false`: nenhum reader é aberto.
+- `/api/health` expõe `maxmind.degraded`; `/api/ready` não falha por MaxMind ausente.
+- O painel mostra MaxMind como degradado/indisponível e exibe `—` na origem.
+
+### 14.4 Atualização independente
+
+```bash
+npm run maxmind:update
+```
+
+- Não é executado no startup.
+- Exige `MAXMIND_LICENSE_KEY`; sem chave não tenta download.
+- Atualiza Country e ASN; uma falha em uma edição não impede a outra.
+- Usa lock em `MAXMIND_DB_DIR/.update.lock`, com remoção de lock obsoleto.
+- Baixa para diretório temporário, valida o tar (path traversal, links e MMDB esperado), valida o MMDB e calcula SHA-256.
+- Copia o banco ativo para `.previous` e faz `rename` atômico do `.next` validado.
+- Mantém o banco ativo em qualquer falha antes do swap.
+- Grava `manifest.json` sem URL, credenciais ou Account ID.
+- O serviço em execução pode recarregar com `SIGHUP` ou ser reiniciado.
+
+### 14.5 Testes executados
+
+- Busca IPv4 e IPv6 com readers simulados.
+- IPs privados, reservados, documentação e inválidos.
+- Cache por TTL e limite de entradas.
+- Banco ausente, corrompido e um reader parcial.
+- Atualização Country/ASN bem-sucedida, SHA-256 e manifesto.
+- Falhas HTTP, retry, tar inválido, MMDB inválido e ausência de credenciais.
+- Lock concorrente, banco fresco, path traversal e MMDB inesperado.
+- Retenção de `.previous` e restauração por rollback.
+- Modo degradado real do serviço e painel.
+
+Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Nenhum banco real foi baixado; os testes usam fixtures tar e readers simulados.
+
+### 14.6 Pendências operacionais
+
+1. Confirmar titularidade das edições Country e ASN.
+2. Copiar/obter os bancos independentemente e validar build epoch.
+3. Criar `/var/lib/node-fw/geolite2/` com permissões restritas.
+4. Criar `.env` de produção com `0600`.
+5. Executar `npm run maxmind:update` e validar os arquivos.
+6. Reiniciar/recarregar o serviço e confirmar país/ASN no painel.
+7. Definir o agendamento operacional (cron/systemd timer) fora do startup.
+8. Somente implantar após a revisão do soak da Fase 4.

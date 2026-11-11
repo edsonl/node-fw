@@ -46,6 +46,12 @@ test('builds counters, windows, rankings, reputation and stream entries', () => 
         status: 404,
         path: '/b',
         dynamic: true,
+        score: 60,
+        level: 'suspect',
+        reasons: ['rate_1m:3/1'],
+        mode: 1,
+        blockEligible: false,
+        excluded: false,
     });
 
     const plan = buildAggregationPlan([first, second], {
@@ -86,13 +92,24 @@ test('builds counters, windows, rankings, reputation and stream entries', () => 
     assert.equal(reputation.lastSeen, '2026-11-05T17:00:20.000Z');
     assert.equal(reputation.lastStatus, 404);
     assert.equal(reputation.lastCountry, 'BR');
+    assert.equal(reputation.score, 60);
+    assert.equal(reputation.level, 'suspect');
+    assert.equal(reputation.reasons, '["rate_1m:3/1"]');
     assert.equal(reputation.ttl, 2592000);
+
+    const suspect = plan.scoredZsets.find((entry) => entry.key.includes('suspects'));
+    assert.equal(suspect.member, '203.0.113.10');
+    assert.equal(suspect.score, 60);
+    assert.equal(suspect.ttl, 2592000);
 
     assert.equal(plan.streams.length, 2);
     const fields = plan.streams[1].fields;
     assert.equal(fields[fields.indexOf('path') + 1], '/b');
     assert.equal(fields[fields.indexOf('status') + 1], '404');
     assert.equal(fields[fields.indexOf('dynamic') + 1], '1');
+    assert.equal(fields[fields.indexOf('score') + 1], '60');
+    assert.equal(fields[fields.indexOf('level') + 1], 'suspect');
+    assert.equal(fields[fields.indexOf('reasons') + 1], '["rate_1m:3/1"]');
     assert.equal(plan.stats.events, 2);
 });
 

@@ -5,9 +5,9 @@
 | Projeto | Node FW |
 | Diretório | `/home/edson/www/node-fw/` |
 | Documento | Plano de implementação e checklist |
-| Versão | 0.5.0 |
-| Data | 06/11/2026 |
-| Status | Fases 1 a 3 concluídas; piloto da Fase 4 validado; painel provisório 4A concluído; soak de 24h pendente |
+| Versão | 0.7.0 |
+| Data | 10/11/2026 |
+| Status | Fases 1 a 3 concluídas; Fase 4 piloto/soak em andamento; 4A concluída; Fases 5 e 6 implementadas em desenvolvimento, sem implantação em produção |
 | Responsável | Equipe Node FW |
 
 ## 1. Objetivo
@@ -46,7 +46,8 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 | Item | Resultado observado |
 |---|---|
-| `/home/edson/www/node-fw/` | Existente; `docs/` e `prompts/` vazios; configuração em `.kilo/`; diretório ainda não é repositório Git |
+| `/home/edson/www/node-fw/` | Repositório de desenvolvimento; `docs/`, `src/`, `test/`, `nginx/`, `data/geolite2/.gitkeep` |
+| `/home/web/node-fw/` | Raiz real do projeto no servidor; **não acessada nesta tarefa**; sem implantação/ativação |
 | Node.js | `v24.12.0` |
 | npm | `10.5.2` |
 | Nginx | `1.18.0` (Ubuntu) |
@@ -189,48 +190,72 @@ Inspeção somente leitura realizada em 05/11/2026.
 - [x] Validar a renderização da UI em Chrome headless.
 - [ ] Usar o painel durante o soak de 24 horas e registrar contagens, erros e observações antes de aprovar o início da Fase 5.
 
-**Entregue:** UI responsiva em `src/panel/`, rotas `/panel` e `/api/events/recent`, consulta cursorizada em `src/storage/queries.js`, testes de paginação/filtros e guia em `docs/PAINEL-OBSERVACAO.md`. A suíte total tem 60 testes aprovados. A UI e os assets usam CSP restritiva, `Cache-Control: no-store` e bind de API em loopback. A consulta do stream lê no máximo 1.000 entradas por chamada, não usa `KEYS` e trunca User-Agent em 160 caracteres.
+**Entregue:** UI responsiva em `src/panel/`, rotas `/panel` e `/api/events/recent`, consulta cursorizada em `src/storage/queries.js`, testes de paginação/filtros e guia em `docs/PAINEL-OBSERVACAO.md`. Na conclusão da Fase 4A, a suíte tinha 60 testes; atualmente tem 99. A UI e os assets usam CSP restritiva, `Cache-Control: no-store` e bind de API em loopback. A consulta do stream lê no máximo 1.000 entradas por chamada, não usa `KEYS` e trunca User-Agent em 160 caracteres.
 
 **Critérios de conclusão:** eventos recentes e indicadores são visíveis sem acesso direto ao Redis; consulta permanece limitada; UI/API ficam somente locais e somente leitura; observação do piloto e decisão de passagem à Fase 5 ficam registradas.
 
-**Limites explícitos:** sem MaxMind (país/ASN), classificação/score, autenticação administrativa, gestão de regras, WebSocket, bloqueio, nem substituição do painel completo da Fase 7. A conclusão do painel não aprova a Fase 5.
+**Limites explícitos:** MaxMind Country/ASN implementado em dev, mas sem bancos reais/implantação; sem classificação/score, autenticação administrativa, gestão de regras, WebSocket, bloqueio, nem substituição do painel completo da Fase 7. A conclusão do painel não aprova a Fase 5.
 
 ### Fase 5 — MaxMind
 
-**Pré-requisito:** concluir o painel provisório de observação da Fase 4A e usá-lo durante o soak do piloto. A implementação de MaxMind só começa após a revisão dos dados observados e a conclusão dos critérios da Fase 4.
+**Status: implementação em desenvolvimento concluída em 10/11/2026; não implantada e sem bancos/credenciais reais.** A cópia/obtenção dos bancos, a criação do `.env` de produção e a ativação aguardam a revisão do soak da Fase 4 e uma janela operacional. Nenhum banco real foi baixado ou copiado nesta tarefa.
 
+**Pré-requisito para implantação:** revisar `docs/SOAK-24H-PENDENTE.md`, concluir a decisão da Fase 4 e executar a obtenção/cópia independente dos bancos em produção.
+
+- [x] Implementar leitor local de Country e ASN, aberto uma vez.
+- [x] Integrar o enriquecimento ao fluxo antes da fila/Redis.
+- [x] Implementar cache limitado por quantidade e TTL.
+- [x] Tratar IPv4, IPv6, IP privado/reservado, inválido e sem resultado com país/ASN nulos.
+- [x] Iniciar em modo degradado quando os bancos não existem ou estão corrompidos.
+- [x] Reaproveitar `country`, `asn` e `asnOrg` no pipeline e no painel.
+- [x] Implementar atualização independente de Country e ASN, com timeout, retry limitado, lock, download temporário, validação de tar/MMDB, SHA-256, troca atômica e `.previous`.
+- [x] Proteger a extração contra path traversal, links e arquivos inesperados.
+- [x] Preservar o banco ativo em falhas de download, tar, validação ou MMDB.
+- [x] Não iniciar downloads automáticos no startup; comando separado `npm run maxmind:update`.
+- [x] Nunca registrar URL completa, license key, account ID ou credenciais em logs, manifestos ou respostas.
+- [x] Adicionar variáveis e placeholders ao `.env.example`.
+- [x] Garantir `.env`, MMDB, tar.gz, temporários, manifestos, `.previous`, `.next` e lock no `.gitignore`.
+- [x] Usar diretório de desenvolvimento independente `data/geolite2/`; produção documentada em `/var/lib/node-fw/geolite2/` sem criá-la.
+- [x] Testar IPv4/IPv6, privados/reservados, inválidos, cache, bancos ausentes/corrompidos, atualização, HTTP, tar, MMDB, rollback, lock concorrente e ausência de segredos.
+- [x] Documentar atribuição MaxMind no painel e limitações/modo degradado.
 - [ ] Confirmar no servidor de produção as edições e credenciais disponíveis.
-- [ ] Copiar de forma independente o banco Country existente.
-- [ ] Baixar ou copiar o banco ASN necessário.
-- [ ] Criar diretório próprio com permissões restritas.
-- [ ] Criar `.env` independente com permissões `0600`.
-- [ ] Implementar leitor local de Country e ASN.
-- [ ] Implementar cache de consultas por IP.
-- [ ] Implementar atualização independente com validação, lock e troca atômica.
-- [ ] Implementar retenção de versão anterior para rollback.
-- [ ] Registrar metadados de atualização sem expor credenciais.
-- [ ] Testar precisão, IPv4, IPv6, IP privado e IP inválido.
-- [ ] Testar falha de download e banco corrompido.
-- [ ] Documentar atribuição/licença MaxMind no painel.
+- [ ] Validar a precisão dos bancos reais com IPs conhecidos.
+- [ ] Copiar/obter independentemente os bancos Country e ASN reais.
+- [ ] Criar diretório e `.env` de produção com permissões restritas.
+- [ ] Executar a atualização operacional com credenciais reais.
+- [ ] Definir agendamento operacional (cron/systemd timer), sem download no startup.
+- [ ] Implantar/ativar MaxMind em produção após a revisão do soak.
+
+**Entregue em desenvolvimento:** `src/enrichment/maxmind.js`, `maxmind-updater.js`, `maxmind-editions.js`, `scripts/update-maxmind.js`, configuração/env, painel e testes. Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Os testes usam mocks/fixtures e nenhum download real. O serviço foi validado em modo degradado, com país/ASN nulos e MaxMind marcado como indisponível.
 
 **Critérios de conclusão:** consultas locais funcionam sem rede, atualização não interrompe o serviço, erros não derrubam o coletor e nenhuma credencial aparece em logs.
 
 ### Fase 6 — Classificação
 
-- [ ] Definir modelo de dados de regras globais e por site.
-- [ ] Implementar pontuação e níveis Normal/Observação/Suspeito/Crítico.
-- [ ] Implementar limites de taxa por IP, site e rota crítica.
-- [ ] Implementar análise de país e ASN como componentes de score.
-- [ ] Implementar verificação de Googlebot/Bingbot por DNS reverso, DNS direto e faixas publicadas.
-- [ ] Implementar detecção de padrões: varredura de rotas, excesso de 404/403, métodos e User-Agent suspeitos.
-- [ ] Implementar decaimento e reincidência.
-- [ ] Implementar listas de exceção por IP/CIDR, ASN, bot verificado e rota.
-- [ ] Implementar configuração por site e modo de operação.
-- [ ] Implementar modo de simulação (avalia e registra, não bloqueia).
-- [ ] Criar testes com cenários de ataque e falsos positivos.
-- [ ] Revisar limites iniciais com dados reais em modo monitoramento.
+**Status: implementação em desenvolvimento concluída em 10/11/2026; não implantada, sem bloqueio e sem calibração com dados reais.**
 
-**Critérios de conclusão:** decisões explicáveis e auditáveis, país nunca é motivo isolado de bloqueio, bots legítimos não são penalizados indevidamente e modo simulação é o padrão.
+- [x] Definir modelo de regras globais e por site em JSON (`config/classification.json` opcional).
+- [x] Implementar pontuação e níveis Normal/Observação/Suspeito/Crítico.
+- [x] Implementar limites de taxa por IP/site, burst e rota crítica.
+- [x] Implementar país, ASN e organização como componentes de score.
+- [x] Implementar verificação de Googlebot/Bingbot por DNS reverso e direto, com cache e faixas opcionais configuráveis.
+- [x] Implementar detecção de varredura de rotas, excesso de 404/403/429, métodos de autenticação e User-Agent suspeito.
+- [x] Implementar decaimento de score e reincidência.
+- [x] Implementar exceções por IP/CIDR, ASN, bot verificado e rota.
+- [x] Implementar configuração por site e modos 1/2/3.
+- [x] Manter modo 1 como padrão; nenhuma ação de bloqueio é executada.
+- [x] Calcular elegibilidade de bloqueio sem escrever no Fail2Ban.
+- [x] Registrar score, nível, motivos, modo e elegibilidade no stream e na reputação Redis.
+- [x] Criar zset `suspects` para score suspeito/crítico.
+- [x] Exibir score/nível no painel provisório.
+- [x] Criar testes de ataque, falsos positivos, bots, exceções, decay, site override e modo.
+- [ ] Calibrar pesos e limites com dados reais do piloto.
+- [ ] Validar o comportamento das janelas após restart (o tracker é em memória; a reputação Redis persiste).
+- [ ] Revisar o soak e decidir a implantação; não ativar bloqueio nesta fase.
+
+**Entregue em desenvolvimento:** `src/classification/classifier.js`, `ip-tracker.js`, `bot-verifier.js`, `rules.js`, `config/classification.example.json`, persistência de score/suspeitos no Redis e painel. A suíte total tem 99 testes aprovados. O último teste integrado gerou um evento com score 30, nível `observation`, motivos `critical_path` e `empty_user_agent`, e reputação Redis correspondente. Nenhum bloqueio foi executado.
+
+**Critérios de conclusão:** decisões explicáveis e auditáveis, país nunca é motivo isolado de bloqueio, bots legítimos não são penalizados indevidamente e modo simulação é o padrão. A calibração com dados reais e a decisão de produção permanecem pendentes.
 
 ### Fase 7 — Painel
 
@@ -301,8 +326,9 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 | Fastify | Fase 2 | Implementado com Fastify 5.12.8 |
 | Redis | Fase 3 | Implementado com Redis 6.0.16 e cliente `redis` 6.3.1; DB 7 e prefixo dedicados |
 | Nginx com syslog | Fase 4 | Nginx 1.18.0 validado; piloto ativo, soak de 24h pendente |
-| MaxMind GeoLite2 Country | Fase 5 | Banco existente no projeto antigo |
-| MaxMind GeoLite2 ASN | Fase 5 | Não existe no projeto antigo; precisa ser obtido |
+| MaxMind GeoLite2 Country | Fase 5 | Leitor/updater implementados em dev; banco real não copiado |
+| MaxMind GeoLite2 ASN | Fase 5 | Leitor/updater implementados em dev; banco real ainda precisa ser obtido |
+| `maxmind` / `tar` npm | Fase 5 | `maxmind` 5.0.8 e `tar` 7.5.22 instalados; nenhum banco real baixado |
 | Vue 3 + Quasar | Fase 7 | Build separado do backend |
 | Fail2Ban | Fase 8 | Deve ser validado no servidor de produção |
 | iptables | Fase 8 | Aplicado exclusivamente pelo Fail2Ban |
@@ -316,10 +342,10 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 | 1 — Preparação | Concluída | 05/11/2026 |
 | 2 — Backend e coletor | Concluída | 05/11/2026 |
 | 3 — Redis | Concluída | 05/11/2026 |
-| 4 — Nginx | Em andamento (piloto ativo) | Soak de 24h e expansão pendentes |
-| 4A — Painel provisório | Implementado | 06/11/2026; uso no soak pendente |
-| 5 — MaxMind | Não iniciada | — |
-| 6 — Classificação | Não iniciada | — |
+| 4 — Nginx | Piloto ativo; soak operacional observado | Estabilidade do coletor observada por mais de 24h; reconciliação dos deltas de logs iniciada em 10/11/2026; expansão pendente. Ver `docs/SOAK-24H-PENDENTE.md` |
+| 4A — Painel provisório | Implementado | 06/11/2026; eventos reais observados; registro final do soak pendente |
+| 5 — MaxMind | Implementada em desenvolvimento | 10/11/2026; bancos/credenciais reais, implantação e ativação pendentes |
+| 6 — Classificação | Implementada em desenvolvimento | 10/11/2026; sem bloqueio, sem calibração real e sem implantação |
 | 7 — Painel | Não iniciada | — |
 | 8 — Fail2Ban | Não iniciada | — |
 | 9 — Produção | Não iniciada | — |
@@ -361,10 +387,11 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 
 1. Manter o Node FW em execução e abrir o painel em `http://127.0.0.1:8088/panel`.
 2. Acompanhar o piloto por 24 horas pelo painel e pelos indicadores operacionais.
-3. Comparar contagens contínuas com o log tradicional do piloto e registrar os resultados.
-4. Resolver as pendências de validação da Fase 4 antes de iniciar MaxMind.
-5. Iniciar a Fase 5 após a conclusão documentada da Fase 4; o painel 4A não aprova a Fase 5 por si só.
-6. Expandir para os demais sites um por vez, conforme `docs/NGINX.md`.
+3. Comparar contagens contínuas com o log tradicional do piloto e registrar os resultados em `docs/SOAK-24H-PENDENTE.md`.
+4. Revisar o soak e decidir a passagem operacional da Fase 4; painel 4A, MaxMind e classificação em dev não substituem essa decisão.
+5. Obter/copiar os bancos MaxMind reais e configurar credenciais em produção apenas em tarefa operacional separada.
+6. Calibrar pesos e limites da classificação com dados reais do piloto em modo monitoramento.
+7. Não executar bloqueios nem iniciar a Fase 8 antes da revisão do soak e da decisão de produção.
 
 ## Apêndice A — Execução local e simulação de eventos
 
@@ -443,5 +470,27 @@ Exemplo de envio manual via Syslog UDP usando o formato do Nginx:
 ```
 
 Com Redis indisponível, `/api/ready` retorna 503, mas a API e o coletor continuam ativos. O pipeline abre o circuito, mantém a fila limitada e retoma automaticamente quando o Redis volta.
+
+### MaxMind em desenvolvimento
+
+Sem bancos em `data/geolite2/`, o serviço inicia em modo degradado: país/ASN ficam nulos e `/api/health` mostra `maxmind.degraded=true`. Nenhum dado é inventado.
+
+Para atualizar bancos reais, configure `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` e `MAXMIND_DB_DIR` em um `.env` local e execute somente quando autorizado:
+
+```bash
+npm run maxmind:update
+```
+
+O comando não roda no startup. Ele usa lock, retry limitado, tar validado, MMDB validado, SHA-256, troca atômica e mantém `.previous`. O serviço em execução pode recarregar os readers com `SIGHUP` ou ser reiniciado. Nenhum banco/credencial real é usado nos testes.
+
+### Classificação em desenvolvimento
+
+Sem `config/classification.json`, os defaults seguros são usados (modo 1, sem bloqueio). Para usar regras por site:
+
+```bash
+cp config/classification.example.json config/classification.json
+```
+
+Edite o arquivo e reinicie o serviço. O loader valida o JSON; configuração inválida cai para defaults e aparece em `/api/stats`. O painel mostra score/nível; `blockEligible` é apenas calculado, sem Fail2Ban.
 
 Para encerrar, use `Ctrl+C` ou `SIGTERM`; o coletor fecha o socket, o pipeline tenta o último lote e a API encerra de forma graciosa.

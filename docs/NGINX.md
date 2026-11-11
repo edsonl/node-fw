@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Documento | Configuração do Nginx para envio de eventos ao Node FW |
-| Versão | 0.5.0 |
-| Data | 06/11/2026 |
+| Versão | 0.7.0 |
+| Data | 10/11/2026 |
 | Status | Configuração do piloto ativa e validada no Nginx real; Node de teste encerrado; soak de 24h pendente |
 | Nginx validado | 1.18.0 (Ubuntu) |
 

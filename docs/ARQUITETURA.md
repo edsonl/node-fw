@@ -4,9 +4,9 @@
 |---|---|
 | Projeto | Node FW |
 | Documento | Arquitetura e decisões técnicas |
-| Versão | 0.5.0 |
-| Data | 06/11/2026 |
-| Status | Arquitetura inicial; Fases 1 a 3 implementadas, piloto Nginx da Fase 4 integrado e painel provisório 4A concluído |
+| Versão | 0.7.0 |
+| Data | 10/11/2026 |
+| Status | Fases 1 a 3 implementadas, piloto Nginx da Fase 4 ativo, painel 4A concluído, Fases 5 e 6 implementadas em desenvolvimento |
 
 ## 1. Visão geral
 
@@ -87,6 +87,17 @@ NGINX
 | Navegador → painel/API | HTTPS/WSS via proxy | Domínio administrativo | TLS, sessão, CSRF, rate limit |
 | API → Fail2Ban (desbloqueio) | Helper restrito | `fail2ban-client` | Sudoers mínimo, IP validado, auditoria |
 | Fail2Ban → iptables | Netfilter local | — | Executado apenas pelo Fail2Ban |
+
+### 2.2 Enriquecimento MaxMind
+
+- `src/enrichment/maxmind.js` abre `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` uma vez e consulta em memória.
+- O enriquecimento roda antes de `eventQueue.push`, adicionando `country`, `asn` e `asnOrg`.
+- IP privado, reservado, documentação, loopback ou inválido não é consultado e fica com valores nulos.
+- Cache por IP com TTL e limite de entradas; cache é limpo em reload.
+- Banco ausente/corrompido não impede o startup: o serviço fica degradado e não inventa dados.
+- Não há download automático no startup. O comando `npm run maxmind:update` usa lock, tar/MMDB validados, SHA-256, swap atômico e `.previous`.
+- O updater nunca registra URL completa, license key ou account ID. O manifesto também não contém segredos.
+- O serviço pode recarregar os readers com `SIGHUP`; a atualização operacional em produção aguarda a revisão do soak.
 
 ## 3. Fluxo de dados
 
@@ -335,10 +346,11 @@ Regras de validação:
 | `nodfw:v1:rank:ip:g:{window}:{bucket}` | sorted set | Ranking global de IPs | `max(2x janela, 60s)` |
 | `nodfw:v1:rank:ip:site:{site}:{window}:{bucket}` | sorted set | Ranking de IPs por site | `max(2x janela, 60s)` |
 | `nodfw:v1:ip:{ip}:sites` | set | Domínios acessados | 24h |
-| `nodfw:v1:score:ip:{ip}` | hash | Reputação: firstSeen, lastSeen, totalEvents, último site/status/método/país | 30d |
-| `nodfw:v1:events` | stream | Eventos recentes (`MAXLEN ~`) | 50.000 entradas por padrão |
+| `nodfw:v1:score:ip:{ip}` | hash | Reputação: firstSeen, lastSeen, totalEvents, último site/status/método/país, score, level, reasons, scoredAt | 30d |
+| `nodfw:v1:suspects` | sorted set | IPs em nível suspeito/crítico com score | 30d |
+| `nodfw:v1:events` | stream | Eventos recentes (`MAXLEN ~`), incluindo classificação | 50.000 entradas por padrão |
 
-Chaves de suspeitos, verificação de bots, cooldown de ban e metadados MaxMind serão adicionadas nas fases 5, 6 e 8.
+Chaves de cooldown de ban, estado de bans e metadados MaxMind serão adicionadas na Fase 8.
 
 Janelas implementadas:
 
@@ -379,13 +391,15 @@ Operações:
 
 | Nível | Faixa inicial | Ação padrão |
 |---|---|---|
-| Normal | 0–19 | Nenhuma |
-| Observação | 20–39 | Registrar e monitorar |
-| Suspeito | 40–69 | Destacar no painel |
-| Crítico | 70–100 | Registrar evento de bloqueio quando elegível |
-| Bloqueado | Estado separado | Refletir estado real do Fail2Ban |
+| Normal | 0–24 | Nenhuma |
+| Observação | 25–49 | Registrar e monitorar |
+| Suspeito | 50–74 | Destacar no painel e no zset `suspects` |
+| Crítico | 75–100 | Calcular elegibilidade; nenhum bloqueio nesta fase |
+| Bloqueado | Estado separado | Refletir estado real do Fail2Ban na Fase 8 |
 
-Bloqueado não é apenas uma faixa de score: é um estado operacional confirmado pelo Fail2Ban.
+Bloqueado não é apenas uma faixa de score: é um estado operacional confirmado pelo Fail2Ban. A classificação atual apenas calcula `blockEligible`; não executa ação.
+
+**Implementação atual:** as regras são carregadas de `config/classification.json` (opcional) com defaults seguros; o modo 1 é o padrão. O tracker é local e limitado, mantendo janelas de 1/5/15 minutos, status, sites, burst e rotas críticas. O estado do tracker reinicia com o processo; o Redis mantém score/reputação, mas as janelas são reconstruídas após restart. Scores decaem com o tempo e são persistidos no hash de reputação e no stream Redis. Exceções por IP/CIDR/ASN/rota/bot verificado retornam ao nível normal e não geram elegibilidade.
 
 ### 8.2 Sinais e pesos iniciais
 
@@ -402,9 +416,11 @@ Os pesos são provisórios e devem ser calibrados em modo monitoramento.
 | Proporção de 404 acima de 70% com volume relevante | +20 | Varredura de rotas |
 | Proporção de 403/429 acima de 50% | +15 | Tentativas repetidas |
 | Acesso a rotas críticas sensíveis | +20 por categoria, cap +30 | Ex.: arquivos de configuração, login, XML-RPC |
+| Taxa em rota crítica acima do limite | +10 | Limite por minuto configurável |
 | User-Agent vazio ou claramente automatizado | +10 | Não confundir com bots verificados |
-| UA alega Googlebot/Bingbot sem verificação | +25 | Só depois da verificação |
-| Bot verificado | -40, piso 0 | Tratamento e limites próprios |
+| UA alega Googlebot/Bingbot aguardando verificação | +5 | Verificação em background |
+| UA alega bot e a verificação falha | +25 | Sem confiar apenas no User-Agent |
+| Bot verificado | -40, piso 0 | Limite de taxa multiplicado; não elegível a bloqueio |
 | POST repetido em endpoints de autenticação | +20 | Evitar força bruta |
 | Reincidência de banimento | +25 | Histórico próprio |
 | IP acessando muitos domínios em pouco tempo | +15 | Pode indicar varredura multi-site |
@@ -426,31 +442,31 @@ A verificação não confia apenas no User-Agent:
 2. Resolver DNS reverso do IP.
 3. Validar o sufixo do hostname esperado.
 4. Resolver o hostname para frente e confirmar que retorna o mesmo IP.
-5. Quando disponível, comparar com faixas publicadas oficialmente (Google/Bing).
+5. Quando configuradas, comparar com faixas publicadas oficiais (`botVerification.googleRanges`/`bingRanges`); as listas não são embutidas no código.
 6. Cachear o resultado por 24 horas.
 
-Se a verificação falhar, o IP não recebe o desconto de bot. Se alegar ser bot sem comprovar, recebe penalidade. Bots verificados podem ter limites próprios e exceção a bloqueios baseados apenas em taxa, mas continuam sujeitos a registro e análise.
+A verificação roda em background, sem bloquear o coletor. Se falhar, o IP não recebe o desconto de bot; se alegar bot e a verificação falhar, recebe penalidade. Bots verificados usam multiplicador de limite e nunca são elegíveis a bloqueio apenas por taxa, mas continuam registrados.
 
 ### 8.4 Configuração por site
 
-Cada site pode definir:
+`config/classification.example.json` documenta o formato. O arquivo `config/classification.json` é opcional; sem ele, os defaults seguros são usados. Cada site pode definir:
 
-- Limites de requisições por janela.
-- Rotas críticas e limites específicos.
+- Limites de requisições por minuto/5m/15m, burst e rota crítica.
+- Rotas críticas e de autenticação.
 - Países com monitoramento reforçado.
 - Exceções por IP/CIDR, ASN, bot verificado e rota.
 - Modo de operação: 1, 2 ou 3.
-- Score mínimo e critérios de bloqueio.
-- Retenção de dados específica.
+- Score mínimo, sinais mínimos e critérios de bloqueio.
+- Faixas opcionais de bots.
 
-Exceções devem ser auditadas e não podem desativar silenciosamente todas as regras. Uma exceção de bloqueio não impede o registro do evento.
+Exceções são auditáveis no evento (`excluded` e motivo). Uma exceção não impede o registro; ela apenas zera o score e a elegibilidade. Alterações no arquivo exigem reinício do serviço nesta fase.
 
 ### 8.5 Persistência de configuração
 
-- Configurações em arquivos JSON versionados em `config/`, com escrita atômica e schema validado.
-- Redis guarda cache e estado temporário, não a fonte de verdade da configuração.
-- Alterações pelo painel geram registro de auditoria append-only.
-- Toda alteração deve ser reversível e identificar autor, data e diff.
+- Configuração em JSON versionado em `config/classification.json` (exemplo em `config/classification.example.json`).
+- O loader valida modos, thresholds, pesos, limites e arrays; configuração inválida cai para defaults e reporta o erro em `/api/stats`.
+- Redis guarda score, motivos, reputação e lista de suspeitos, não a fonte de verdade da configuração.
+- Edição pelo painel, auditoria de alterações e escrita atômica ficam para a Fase 7.
 - Se a necessidade de consultas históricas crescer, avaliar SQLite em fase futura; não introduzir banco relacional agora.
 
 ## 9. API e painel
@@ -489,6 +505,7 @@ WS   /ws
 
 - O painel 4A e `/api/events/recent` são somente leitura, com API em loopback e sem autenticação nesta fase. Não devem ser expostos à Internet.
 - A consulta de eventos usa `XREVRANGE` com `COUNT` limitado e cursor de stream; não usa `KEYS` nem carrega o stream inteiro.
+- Os eventos retornados incluem `country`, `asn`, `asnOrg`, `score`, `level`, `reasons`, `mode`, `blockEligible` e `excluded`; não há ações de bloqueio.
 - Autenticação por sessão segura; cookie `HttpOnly`, `Secure`, `SameSite=Strict` (Fase 7).
 - CSRF obrigatório em métodos que alteram estado.
 - Rate limit em login e endpoints administrativos.
@@ -504,7 +521,7 @@ WS   /ws
 - Somente leitura, loopback, sem autenticação nesta etapa.
 - Polling de 10 segundos; sem WebSocket.
 - Eventos do stream Redis com paginação cursorizada; filtros por site, IP e status.
-- Indicadores de `/api/stats` e `/api/summary`; sem MaxMind/score.
+- Indicadores de `/api/stats` e `/api/summary`; país/ASN quando o MaxMind está carregado, score/nível da classificação e `—` em modo degradado; nenhum bloqueio.
 
 **Fase 7 (previsto):**
 
@@ -698,7 +715,7 @@ As metas devem ser revalidadas com carga real antes da Fase 9.
 | Jail separado | Reutilizar `nginx-wishlist` | Isolamento e não regressão |
 | Modo monitoramento inicial | Bloqueio automático imediato | Calibração e prevenção de falsos positivos |
 
-## 16. Estado da implementação (Fase 4 — piloto + painel 4A)
+## 16. Estado da implementação (Fases 4 — piloto, 4A e 5 — dev)
 
 Implementado:
 
@@ -722,7 +739,14 @@ Implementado:
 - Documentação operacional em `docs/NGINX.md`; backup do vhost em `backups/`.
 - Painel provisório 4A em `/panel`, somente leitura, loopback, com polling de 10s, filtros e paginação cursorizada do stream.
 - Endpoint `/api/events/recent` com limite de 100 por página, varredura máxima de 1.000 entradas e User-Agent truncado em 160 caracteres.
-- UI validada em Chrome headless com eventos reais; 60 testes automatizados aprovados.
+- UI validada em Chrome headless com eventos reais.
+- Enriquecimento MaxMind Country/ASN implementado em desenvolvimento, com readers abertos uma vez, cache limitado/TTL, modo degradado e IPs privados/reservados sem consulta.
+- Updater independente com timeout, retry, lock, tar validado, MMDB validado, SHA-256, troca atômica, `.previous`, manifesto sem segredos e rollback.
+- Eventos carregam `country`, `asn` e `asnOrg`; o painel exibe a origem e o estado do MaxMind.
+- Classificação local com score/nível/motivos, tracker de janelas, decays, exceções, regras por site e modo 1/2/3.
+- Bot verifier DNS reverso/direto com cache e faixas opcionais; modo monitoramento é o padrão.
+- Score, nível e motivos são gravados no stream e na reputação Redis; suspeitos entram no zset `suspects`.
+- 99 testes automatizados aprovados, incluindo fixtures/mocks de MaxMind, bots e regras.
 
 Pendente na Fase 4:
 
@@ -731,12 +755,22 @@ Pendente na Fase 4:
 - Validação de Laravel/WordPress e de proxy/CDN em sites reais.
 - Expansão para os demais sites, um por vez.
 
+Pendente na Fase 5:
+
+- Bancos Country/ASN reais, credenciais e diretório de produção.
+- Execução operacional do updater e ativação no servidor.
+- Revisão do soak antes da implantação.
+
+Pendente na Fase 6:
+
+- Calibração de pesos, limites e exceções com tráfego real do piloto.
+- Revisão do modo de operação e dos critérios de bloqueio com dados reais.
+- Aprovação explícita antes de qualquer ação de bloqueio/Fail2Ban.
+
 Ainda não implementado:
 
-- Enriquecimento MaxMind e país/ASN reais (Fase 5). O pipeline já aceita `country`/`asn` quando presentes.
-- Score, níveis e lista de suspeitos (Fase 6). A reputação atual é descritiva, não classificatória.
 - Painel administrativo completo (Fase 7); o painel 4A é apenas observação.
-- Evento e jail Fail2Ban (Fase 8).
+- Evento e jail Fail2Ban (Fase 8); a classificação apenas calcula elegibilidade.
 - Serviços systemd, alertas formais e endurecimento de produção (Fase 9).
 
-Fluxo atual: Nginx → UDP → parser → fila limitada → aggregator em lote → Redis → `/api/summary`, `/api/stats` e `/panel`. O callback `onEvent` é o ponto de integração do coletor com o pipeline.
+Fluxo atual: Nginx → UDP → parser → enriquecimento MaxMind local → classificação local → fila limitada → aggregator em lote → Redis → `/api/summary`, `/api/stats`, `/api/events/recent` e `/panel`. O callback `onEvent` é o ponto de integração do coletor com o enriquecimento, a classificação e o pipeline.

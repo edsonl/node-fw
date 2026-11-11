@@ -43,6 +43,11 @@ export async function writeAggregationPlan(client, plan, timeoutMs) {
         appendCommand(multi, ['EXPIRE', entry.key, String(entry.ttl)]);
     }
 
+    for (const entry of plan.scoredZsets ?? []) {
+        appendCommand(multi, ['ZADD', entry.key, String(entry.score), entry.member]);
+        appendCommand(multi, ['EXPIRE', entry.key, String(entry.ttl)]);
+    }
+
     for (const entry of plan.hashes) {
         appendCommand(multi, ['HINCRBY', entry.key, entry.field, String(entry.amount)]);
         appendCommand(multi, ['EXPIRE', entry.key, String(entry.ttl)]);
@@ -69,6 +74,12 @@ export async function writeAggregationPlan(client, plan, timeoutMs) {
         if (entry.lastCountry) {
             fields.push('lastCountry', entry.lastCountry);
         }
+        fields.push(
+            'score', String(entry.score ?? 0),
+            'level', entry.level ?? 'normal',
+            'reasons', entry.reasons ?? '[]',
+            'scoredAt', entry.scoredAt ?? entry.lastSeen
+        );
 
         appendCommand(multi, ['HSETNX', entry.key, 'firstSeen', entry.firstSeen]);
         appendCommand(multi, ['HINCRBY', entry.key, 'totalEvents', String(entry.count)]);

@@ -229,7 +229,7 @@ main {
 
 table {
     width: 100%;
-    min-width: 1080px;
+    min-width: 1180px;
     border-collapse: collapse;
     font-size: 13px;
 }
@@ -275,9 +275,14 @@ td.ua {
 td.time,
 td.ip,
 td.method,
-td.duration {
+td.duration,
+td.origin {
     font-family: var(--mono);
     white-space: nowrap;
+}
+
+td.origin {
+    color: var(--muted);
 }
 
 .status {
@@ -310,6 +315,40 @@ td.duration {
 .status-5xx {
     color: var(--bad);
     background: rgba(242, 99, 99, 0.12);
+}
+
+td.score {
+    white-space: nowrap;
+}
+
+.score-badge {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(147, 164, 189, 0.12);
+    color: var(--muted);
+}
+
+.level-normal {
+    color: var(--muted);
+}
+
+.level-observation {
+    color: #8fc7ff;
+    background: rgba(77, 163, 255, 0.12);
+}
+
+.level-suspect {
+    color: var(--warn);
+    background: rgba(240, 180, 41, 0.12);
+}
+
+.level-critical {
+    color: var(--bad);
+    background: rgba(242, 99, 99, 0.14);
 }
 
 .badge {
@@ -385,6 +424,10 @@ td.duration {
 
 .metric-bad {
     color: var(--bad);
+}
+
+.metric-warn {
+    color: var(--warn);
 }
 
 .health-grid {
