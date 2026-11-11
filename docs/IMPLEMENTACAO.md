@@ -198,7 +198,7 @@ Inspeção somente leitura realizada em 05/11/2026.
 
 ### Fase 5 — MaxMind
 
-**Status: implementação em desenvolvimento concluída em 10/11/2026; não implantada e sem bancos/credenciais reais.** A cópia/obtenção dos bancos, a criação do `.env` de produção e a ativação aguardam a revisão do soak da Fase 4 e uma janela operacional. Nenhum banco real foi baixado ou copiado nesta tarefa.
+**Status: implementação em desenvolvimento concluída em 10/11/2026; Country e ASN reais baixados e validados em desenvolvimento em 11/11/2026; produção não implantada.** A configuração e ativação em produção aguardam a revisão do soak da Fase 4 e uma janela operacional.
 
 **Pré-requisito para implantação:** revisar `docs/SOAK-24H-PENDENTE.md`, concluir a decisão da Fase 4 e executar a obtenção/cópia independente dos bancos em produção.
 
@@ -215,18 +215,19 @@ Inspeção somente leitura realizada em 05/11/2026.
 - [x] Nunca registrar URL completa, license key, account ID ou credenciais em logs, manifestos ou respostas.
 - [x] Adicionar variáveis e placeholders ao `.env.example`.
 - [x] Garantir `.env`, MMDB, tar.gz, temporários, manifestos, `.previous`, `.next` e lock no `.gitignore`.
-- [x] Usar diretório de desenvolvimento independente `data/geolite2/`; produção documentada em `/var/lib/node-fw/geolite2/` sem criá-la.
+- [x] Usar `data/geolite2/` na raiz do projeto em desenvolvimento e produção; em produção, proteger o diretório contra deploys destrutivos e restringir permissões ao usuário do serviço.
 - [x] Testar IPv4/IPv6, privados/reservados, inválidos, cache, bancos ausentes/corrompidos, atualização, HTTP, tar, MMDB, rollback, lock concorrente e ausência de segredos.
 - [x] Documentar atribuição MaxMind no painel e limitações/modo degradado.
 - [ ] Confirmar no servidor de produção as edições e credenciais disponíveis.
 - [ ] Validar a precisão dos bancos reais com IPs conhecidos.
-- [ ] Copiar/obter independentemente os bancos Country e ASN reais.
+- [x] Baixar Country e ASN reais em desenvolvimento e validar abertura/metadata em 11/11/2026.
+- [ ] Instalar/atualizar os bancos Country e ASN na raiz de produção `/home/web/node-fw/data/geolite2/`.
 - [ ] Criar diretório e `.env` de produção com permissões restritas.
 - [ ] Executar a atualização operacional com credenciais reais.
 - [ ] Definir agendamento operacional (cron/systemd timer), sem download no startup.
 - [ ] Implantar/ativar MaxMind em produção após a revisão do soak.
 
-**Entregue em desenvolvimento:** `src/enrichment/maxmind.js`, `maxmind-updater.js`, `maxmind-editions.js`, `scripts/update-maxmind.js`, configuração/env, painel e testes. Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Os testes usam mocks/fixtures e nenhum download real. O serviço foi validado em modo degradado, com país/ASN nulos e MaxMind marcado como indisponível.
+**Entregue em desenvolvimento:** `src/enrichment/maxmind.js`, `maxmind-updater.js`, `maxmind-editions.js`, `scripts/update-maxmind.js`, configuração/env, painel e testes. Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Os testes usam mocks/fixtures. Os bancos reais Country e ASN foram baixados e abertos com sucesso em desenvolvimento em 11/11/2026; o serviço de produção ainda não foi atualizado.
 
 **Critérios de conclusão:** consultas locais funcionam sem rede, atualização não interrompe o serviço, erros não derrubam o coletor e nenhuma credencial aparece em logs.
 
@@ -328,7 +329,7 @@ O painel desta fase é o produto administrativo completo. Ele não é substituí
 | Nginx com syslog | Fase 4 | Nginx 1.18.0 validado; piloto ativo, soak de 24h pendente |
 | MaxMind GeoLite2 Country | Fase 5 | Leitor/updater implementados em dev; banco real não copiado |
 | MaxMind GeoLite2 ASN | Fase 5 | Leitor/updater implementados em dev; banco real ainda precisa ser obtido |
-| `maxmind` / `tar` npm | Fase 5 | `maxmind` 5.0.8 e `tar` 7.5.22 instalados; nenhum banco real baixado |
+| `maxmind` / `tar` npm | Fase 5 | `maxmind` 5.0.8 e `tar` 7.5.22 instalados; Country/ASN reais validados em desenvolvimento; produção pendente |
 | Vue 3 + Quasar | Fase 7 | Build separado do backend |
 | Fail2Ban | Fase 8 | Deve ser validado no servidor de produção |
 | iptables | Fase 8 | Aplicado exclusivamente pelo Fail2Ban |

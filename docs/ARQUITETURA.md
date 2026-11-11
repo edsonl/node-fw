@@ -81,7 +81,7 @@ NGINX
 |---|---|---|---|
 | Nginx → coletor | Syslog UDP | `127.0.0.1:5514` | Bind em loopback, validação de schema e tamanho |
 | Coletor/API → Redis | RESP2/TCP | `127.0.0.1:6379`, DB 7 | Compatível com o Redis 5.0.7 observado no servidor; bind local, ACL/requirepass, firewall |
-| Node → MaxMind | Leitura de arquivo local | `data/geolite2/` ou `/var/lib/node-fw/geolite2/` | Permissões restritas, sem rede no hot path |
+| Node → MaxMind | Leitura de arquivo local | `data/geolite2/` dentro da raiz do projeto | Permissões restritas, sem rede no hot path |
 | Job → MaxMind | HTTPS | `download.maxmind.com:443` | TLS, credenciais em `.env`, URL nunca logada |
 | Node → Fail2Ban | Arquivo append-only | `/var/log/node-fw/security-events.log` | Diretório restrito, linha validada, filtro ancorado |
 | Navegador → painel/API | HTTPS/WSS via proxy | Domínio administrativo | TLS, sessão, CSRF, rate limit |
@@ -153,7 +153,7 @@ node-fw/
 └── package.json
 ```
 
-Em produção, os bancos MaxMind devem ficar preferencialmente em `/var/lib/node-fw/geolite2/`, com permissões restritas, e não dentro do diretório do código.
+Por decisão operacional, os bancos MaxMind também ficarão em `data/geolite2/` na raiz do projeto em produção (`/home/web/node-fw/data/geolite2/`). O diretório deve ser excluído de deploys destrutivos e ter permissões restritas ao usuário do serviço e ao operador responsável pelas atualizações.
 
 ## 5. Integração com o Nginx
 

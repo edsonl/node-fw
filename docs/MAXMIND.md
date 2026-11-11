@@ -7,7 +7,7 @@
 | Versão | 0.7.0 |
 | Tipo de inspeção | Somente leitura |
 | Data da inspeção | 05/11/2026 |
-| Status | Fase 5 implementada em desenvolvimento; nenhum banco/credencial real copiado ou usado; produção não implantada |
+| Status | Country e ASN reais baixados e validados em desenvolvimento em 11/11/2026; produção não implantada |
 | Documento | Estratégia de dados, atualização e segurança |
 
 ## 1. Resumo
@@ -110,7 +110,7 @@ Esta etapa **não foi executada**. A cópia ocorrerá na Fase 5, após validaç�
 1. Confirmar que o projeto de origem não está em uso exclusivo ou bloqueado.
 2. Criar o diretório de destino independente:
    - Desenvolvimento: `/home/edson/www/node-fw/data/geolite2/`
-   - Produção: `/var/lib/node-fw/geolite2/`
+   - Produção: `/home/web/node-fw/data/geolite2/` (decisão operacional: manter os bancos sob `data/` na raiz do projeto).
 3. Aplicar permissões restritas ao diretório.
 4. Copiar o arquivo com `install` ou `cp` normal, nunca com link simbólico, hardlink, bind mount ou compartilhamento de arquivo.
 5. Preservar o arquivo original; não mover, renomear ou alterar nada na origem.
@@ -121,15 +121,15 @@ Esta etapa **não foi executada**. A cópia ocorrerá na Fase 5, após validaç�
 Exemplo ilustrativo (executar somente na Fase 5, com os caminhos e usuário definidos):
 
 ```bash
-install -d -m 0750 -o nodefw -g nodefw /var/lib/node-fw/geolite2
+install -d -m 0750 -o nodefw -g nodefw /home/web/node-fw/data/geolite2
 install -m 0640 -o nodefw -g nodefw \
   /home/edson/node-anti-span/geolite-data/GeoLite2-Country.mmdb \
-  /var/lib/node-fw/geolite2/GeoLite2-Country.mmdb
+  /home/web/node-fw/data/geolite2/GeoLite2-Country.mmdb
 sha256sum /home/edson/node-anti-span/geolite-data/GeoLite2-Country.mmdb \
-          /var/lib/node-fw/geolite2/GeoLite2-Country.mmdb
+          /home/web/node-fw/data/geolite2/GeoLite2-Country.mmdb
 ```
 
-O comando acima é apenas um modelo. A execução real deve ser revisada para o usuário de serviço e o caminho de produção.
+O comando acima é apenas um modelo. A origem mostrada é somente referência histórica; para os bancos atuais, baixe Country e ASN da MaxMind. Revise o usuário/grupo do serviço e proteja `data/geolite2/` contra deploys que removam dados locais.
 
 ### 6.2 Banco ASN
 
@@ -167,7 +167,7 @@ node-fw/
 Em produção:
 
 ```text
-/var/lib/node-fw/geolite2/
+/home/web/node-fw/data/geolite2/
 ├── GeoLite2-Country.mmdb
 ├── GeoLite2-ASN.mmdb
 ├── GeoLite2-Country.mmdb.previous
@@ -210,7 +210,7 @@ MAXMIND_LOCK_STALE_MS=900000
 
 - `MAXMIND_ACCOUNT_ID` e `MAXMIND_LICENSE_KEY` são secretos e não aparecem no `toSafeConfig`.
 - Country e ASN são atualizados pelo mesmo comando, com resultados independentes.
-- O diretório de produção deve ser configurado explicitamente para `/var/lib/node-fw/geolite2/`.
+- O diretório em produção deve ser `data/geolite2/` na raiz do projeto (`/home/web/node-fw/data/geolite2/`).
 - Timeout, retries e backoff evitam conexões penduradas e limitam novas tentativas.
 - O lock é um arquivo `.update.lock` com remoção de lock obsoleto.
 
@@ -297,7 +297,7 @@ Antes da produção, revisar os termos aplicáveis à conta e ao uso interno dos
 | Data do banco Country | Dados podem estar desatualizados | Validar build epoch na Fase 5 |
 | Account ID sem uso no download observado | Pode ser necessário para outras APIs | Manter secreto e confirmar necessidade |
 | Endpoint legacy com chave na URL | Risco de vazamento em logs | Redaction rigorosa e teste de logs |
-| Caminho de produção indefinido | Permissões e backup | Definir `/var/lib/node-fw/geolite2/` |
+| Permissões/retensão de dados no deploy | Banco ilegível ou removido | Preservar `/home/web/node-fw/data/geolite2/` nos deploys e restringir acesso |
 | Usuário de serviço indefinido | Permissões incorretas | Definir na Fase 9 |
 | Sem City | Sem detalhe de cidade | Manter opcional; não bloquear a Fase 5 |
 
@@ -361,7 +361,7 @@ MAXMIND_CACHE_TTL_MS=300000
 MAXMIND_LOCK_STALE_MS=900000
 ```
 
-Os nomes reais dos arquivos são `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` dentro de `MAXMIND_DB_DIR`. Em produção, usar `/var/lib/node-fw/geolite2/`; esse diretório não foi criado nesta tarefa. A raiz real do projeto no servidor é `/home/web/node-fw/`, que também não foi acessada.
+Os nomes reais dos arquivos são `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` dentro de `MAXMIND_DB_DIR`. Em produção, usar `/home/web/node-fw/data/geolite2/`, preservando os bancos nos deploys e aplicando permissões restritas. A raiz real do projeto no servidor é `/home/web/node-fw/`, que não foi acessada nesta tarefa.
 
 ### 14.3 Modo degradado
 
@@ -400,13 +400,13 @@ npm run maxmind:update
 - Retenção de `.previous` e restauração por rollback.
 - Modo degradado real do serviço e painel.
 
-Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Nenhum banco real foi baixado; os testes usam fixtures tar e readers simulados.
+Na conclusão da Fase 5, a suíte tinha 77 testes; após a Fase 6, tem 99. Os testes automatizados de atualização usam fixtures tar e readers simulados. Os bancos reais foram baixados e abertos com sucesso em desenvolvimento em 11/11/2026.
 
 ### 14.6 Pendências operacionais
 
 1. Confirmar titularidade das edições Country e ASN.
 2. Copiar/obter os bancos independentemente e validar build epoch.
-3. Criar `/var/lib/node-fw/geolite2/` com permissões restritas.
+3. Criar `/home/web/node-fw/data/geolite2/` com permissões restritas e exclusão de deploys destrutivos.
 4. Criar `.env` de produção com `0600`.
 5. Executar `npm run maxmind:update` e validar os arquivos.
 6. Reiniciar/recarregar o serviço e confirmar país/ASN no painel.

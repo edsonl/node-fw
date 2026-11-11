@@ -31,7 +31,8 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 │   └── node-fw-php-log.conf
 ├── backups/                 # backups locais de vhosts (fora do Git)
 ├── prompts/
-│   └── CONTEXTO.md
+│   ├── CONTEXTO.md
+│   └── VALIDACAO-LOGS-ETAPA-FINAL.md
 ├── config/
 │   └── classification.example.json
 ├── src/
@@ -56,7 +57,7 @@ O sistema deve ser leve, incremental e não pode criar dependência do Node.js p
 └── .kilo/
 ```
 
-Estrutura atual: `src/enrichment/` (MaxMind), `src/classification/` (regras/score/bots), `config/classification.example.json`, `data/geolite2/` (bancos, somente `.gitkeep` em dev) e `scripts/update-maxmind.js`. Estrutura futura: `panel/` (Vue/Quasar) e persistência/administração de regras da Fase 7.
+Estrutura atual: `src/enrichment/` (MaxMind), `src/classification/` (regras/score/bots), `config/classification.example.json`, `data/geolite2/` (bancos locais ignorados pelo Git) e `scripts/update-maxmind.js`. Estrutura futura: `panel/` (Vue/Quasar) e persistência/administração de regras da Fase 7.
 
 Produção: a raiz real do projeto é `/home/web/node-fw/`; ela **não foi acessada nesta tarefa**. Nenhuma implantação ou ativação foi feita.
 
@@ -135,10 +136,10 @@ Decisões já tomadas:
 - MaxMind:
   - Banco existente no projeto antigo: `/home/edson/node-anti-span/geolite-data/GeoLite2-Country.mmdb`.
   - Apenas Country; ASN e City ausentes no projeto antigo.
-  - Implementação dev: `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` em `MAXMIND_DB_DIR` (dev `data/geolite2/`; produção `/var/lib/node-fw/geolite2/`).
+  - Implementação: `GeoLite2-Country.mmdb` e `GeoLite2-ASN.mmdb` em `MAXMIND_DB_DIR` (`data/geolite2/` na raiz do projeto tanto em desenvolvimento quanto em produção; produção `/home/web/node-fw/data/geolite2/`).
   - Variáveis: `MAXMIND_ENABLED`, `MAXMIND_DB_DIR`, `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY`, `MAXMIND_REFRESH_MAX_AGE_DAYS`, `MAXMIND_DOWNLOAD_TIMEOUT_MS`, `MAXMIND_DOWNLOAD_RETRIES`, `MAXMIND_RETRY_BACKOFF_MS`, `MAXMIND_CACHE_MAX_ENTRIES`, `MAXMIND_CACHE_TTL_MS`, `MAXMIND_LOCK_STALE_MS`.
   - Updater: `npm run maxmind:update` (não roda no startup). Lock, tar/MMDB validados, SHA-256, swap atômico, `.previous`, manifesto sem segredos.
-  - Nenhum valor secreto copiado ou documentado; nenhum banco real copiado/baixado.
+  - Country e ASN reais baixados e validados em desenvolvimento em 11/11/2026; produção ainda não implantada. Valores secretos não devem ser documentados.
   - Serviço inicia degradado sem os bancos; país/ASN nulos.
 
 ## 7. Próxima etapa
@@ -163,4 +164,5 @@ MaxMind e classificação estão implementados em dev, sem bancos/credenciais re
 - `docs/NGINX.md`: configuração central, vhosts, validação, rollback e troubleshooting.
 - `docs/PAINEL-OBSERVACAO.md`: painel 4A, filtros, paginação, score, limites e procedimento do soak.
 - `docs/SOAK-24H-PENDENTE.md`: baseline, janela e comandos de reconciliação do soak.
+- `prompts/VALIDACAO-LOGS-ETAPA-FINAL.md`: prompt para implementar diagnóstico de cobertura entre log PHP dedicado e eventos Node FW por site/período, sem depender da retenção do stream.
 - `config/classification.example.json`: exemplo de regras globais e por site da Fase 6.
